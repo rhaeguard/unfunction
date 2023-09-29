@@ -31,7 +31,7 @@ jobs:
         run: |
           cp -R public/* ${GITHUB_WORKSPACE}/built-site/
           cd ${GITHUB_WORKSPACE}/built-site
-          rm README.md
+          rm -f README.md
           git add .
           git config user.name 'rhaeguard'
           git config user.email 'mensurowary@gmail.com'
