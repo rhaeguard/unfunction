@@ -1,7 +1,7 @@
 +++
 title = 'How to build a regex engine from scratch'
 date = 2023-09-28T22:40:33-06:00
-draft = true
+draft = false
 +++
 
 In this article, we'll build a simple regular expression engine that will be able to use `[a-zA-Z0–9_]+@[a-zA-Z0–9]+\.[a-zA-Z]{2,}` pattern to check for the validity of email addresses. I will use Golang. We'll divide the whole process into 3 sections:
