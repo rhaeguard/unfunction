@@ -43,17 +43,17 @@
             </div>
         </main>
     </body><script>
+    const themeVal = localStorage.getItem("isDark") || document.getElementsByTagName("body")[0].getAttribute("a")
+    document.getElementsByTagName("body")[0].setAttribute("a", themeVal)
     const btns = document.getElementsByClassName('theme-switch')
     for (let btn of btns) {
+        btn.innerHTML = themeVal === "dark" ? "light" : "dark"
         btn.addEventListener('click', (event) => {
-            const isDark = document.getElementsByTagName("body")[0].getAttribute("a") === "dark"
-            if (isDark) {
-                document.getElementsByTagName("body")[0].setAttribute("a", "light")
-                btn.innerHTML = "dark"
-            } else {
-                document.getElementsByTagName("body")[0].setAttribute("a", "dark")
-                btn.innerHTML = "light"
-            }
+            const theme = localStorage.getItem("isDark") || document.getElementsByTagName("body")[0].getAttribute("a")
+            const isDark = theme === "dark"
+            document.getElementsByTagName("body")[0].setAttribute("a", isDark ? "light" : "dark")
+            localStorage.setItem("isDark", isDark ? "light" : "dark")
+            btn.innerHTML = isDark ? "dark" : "light"
         })
     }
 </script></html>
