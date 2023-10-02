@@ -13,8 +13,9 @@
       <pubDate>Thu, 28 Sep 2023 22:40:33 -0600</pubDate>
       
       <guid>https://rhaeguard.github.io/unfunction/posts/regex/</guid>
-      <description>In this article, we&amp;rsquo;ll build a simple regular expression engine that will be able to use [a-zA-Z0–9_]+@[a-zA-Z0–9]+\.[a-zA-Z]{2,} pattern to check for the validity of email addresses. I will use Golang. We&amp;rsquo;ll divide the whole process into 3 sections:
-Parsing Building the epsilon-NFA Matching Parsing On its own, a regex string is just that - a string. We need to convert that input into something has a structure. In this section, we&amp;rsquo;ll go over the process of parsing a regex string into tokens.</description>
+      <description>In this article, we&amp;rsquo;ll build a simple regular expression engine that will be able to use [a-zA-Z0–9_]+@[a-zA-Z0–9]+.[a-zA-Z]{2,} pattern to check for the validity of email addresses. We will use Golang. The article is divided into 3 sections:
+Parsing Building the epsilon-NFA Matching Parsing On its own, a regex string is just that - a string. We need to convert that input into something has a structure. For instance:
+# original regex string [a-zA-Z0–9_]+@[a-zA-Z0–9]+.</description>
     </item>
     
   </channel>

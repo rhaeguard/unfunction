@@ -3,8 +3,9 @@
   <meta charset="utf-8" />
   <meta http-equiv="X-UA-Compatible" content="IE=edge" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-   <meta name="description" content="In this article, we&rsquo;ll build a simple regular expression engine that will be able to use [a-zA-Z0–9_]&#43;@[a-zA-Z0–9]&#43;\.[a-zA-Z]{2,} pattern to check for the validity of email addresses. I will use Golang. We&rsquo;ll divide the whole process into 3 sections:
-Parsing Building the epsilon-NFA Matching Parsing On its own, a regex string is just that - a string. We need to convert that input into something has a structure. In this section, we&rsquo;ll go over the process of parsing a regex string into tokens.">  
+   <meta name="description" content="In this article, we&rsquo;ll build a simple regular expression engine that will be able to use [a-zA-Z0–9_]&#43;@[a-zA-Z0–9]&#43;.[a-zA-Z]{2,} pattern to check for the validity of email addresses. We will use Golang. The article is divided into 3 sections:
+Parsing Building the epsilon-NFA Matching Parsing On its own, a regex string is just that - a string. We need to convert that input into something has a structure. For instance:
+# original regex string [a-zA-Z0–9_]&#43;@[a-zA-Z0–9]&#43;.">  
 
   <title>
     
@@ -38,41 +39,60 @@ Parsing Building the epsilon-NFA Matching Parsing On its own, a regex string is 
 
     
 
-    <p>In this article, we&rsquo;ll build a simple regular expression engine that will be able to use <code>[a-zA-Z0–9_]+@[a-zA-Z0–9]+\.[a-zA-Z]{2,}</code> pattern to check for the validity of email addresses. I will use Golang. We&rsquo;ll divide the whole process into 3 sections:</p>
+    <p>In this article, we&rsquo;ll build a simple regular expression engine that will be able to use <code>[a-zA-Z0–9_]+@[a-zA-Z0–9]+.[a-zA-Z]{2,}</code> pattern to check for the validity of email addresses. We will use Golang. The article is divided into 3 sections:</p>
 <ul>
 <li><a href="#parsing">Parsing</a></li>
 <li><a href="#building-the-epsilon-nfa">Building the epsilon-NFA</a></li>
 <li><a href="#matching">Matching</a></li>
 </ul>
 <h2 id="parsing">Parsing</h2>
-<p>On its own, a regex string is just that - a string. We need to convert that input into something has a structure. In this section, we&rsquo;ll go over the process of parsing a regex string into tokens. 
-The core idea when it comes to parsing regex is simple, we will look for the characters that have special meanings such as <code>* + ? () [] {}</code> etc. and will try to create tokens out of those. It&rsquo;ll be more clear once we start writing some code.
-Before getting into the parsing algorithm, let&rsquo;s define some structs.</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">type</span> <span style="color:#a6e22e">tokenType</span> <span style="color:#66d9ef">uint8</span>
+<p>On its own, a regex string is just that - a string. We need to convert that input into something has a structure. For instance:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-python" data-lang="python"><span style="display:flex;"><span><span style="color:#75715e"># original regex string</span>
+</span></span><span style="display:flex;"><span>[a<span style="color:#f92672">-</span>zA<span style="color:#f92672">-</span>Z0<span style="color:#960050;background-color:#1e0010">–</span><span style="color:#ae81ff">9</span>_]<span style="color:#f92672">+@</span>[a<span style="color:#f92672">-</span>zA<span style="color:#f92672">-</span>Z0<span style="color:#960050;background-color:#1e0010">–</span><span style="color:#ae81ff">9</span>]<span style="color:#f92672">+.</span>[a<span style="color:#f92672">-</span>zA<span style="color:#f92672">-</span>Z]{<span style="color:#ae81ff">2</span>,}
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">const</span> (
-</span></span><span style="display:flex;"><span>   <span style="color:#a6e22e">group</span>           <span style="color:#a6e22e">tokenType</span> = <span style="color:#66d9ef">iota</span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e"># regex tokens</span>
+</span></span><span style="display:flex;"><span>Repeat(<span style="color:#ae81ff">1</span>, infinity):
+</span></span><span style="display:flex;"><span>   Range(a, b,<span style="color:#f92672">...</span>z, A, B,<span style="color:#f92672">...</span>,Z, <span style="color:#ae81ff">0</span>,<span style="color:#f92672">...</span>,<span style="color:#ae81ff">9</span>,_)
+</span></span><span style="display:flex;"><span>Literal(<span style="color:#f92672">@</span>)
+</span></span><span style="display:flex;"><span>Repeat(<span style="color:#ae81ff">1</span>, infinity):
+</span></span><span style="display:flex;"><span>   Range(a, b,<span style="color:#f92672">...</span>z, A, B,<span style="color:#f92672">...</span>,Z, <span style="color:#ae81ff">0</span>,<span style="color:#f92672">...</span>,<span style="color:#ae81ff">9</span>)
+</span></span><span style="display:flex;"><span>Literal(<span style="color:#f92672">.</span>)
+</span></span><span style="display:flex;"><span>Repeat(<span style="color:#ae81ff">2</span>, infinity):
+</span></span><span style="display:flex;"><span>   Range(a, b,<span style="color:#f92672">...</span>z, A, B,<span style="color:#f92672">...</span>,Z)
+</span></span></code></pre></div><p>In this section, we&rsquo;ll go over the process of parsing a regex string into tokens. 
+The core idea when it comes to parsing regex is simple, we will look for the characters that have special meanings such as <code>* + ? () [] {}</code> etc. and will try to create tokens out of those. It&rsquo;ll be more clear once we start writing some code.
+Before getting into the parsing algorithm, let&rsquo;s define some types and constants.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">type</span> <span style="color:#a6e22e">tokenType</span> <span style="color:#66d9ef">uint8</span> <span style="color:#75715e">// &lt;1&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">const</span> ( <span style="color:#75715e">// &lt;2&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>   <span style="color:#a6e22e">group</span>           <span style="color:#a6e22e">tokenType</span> = <span style="color:#66d9ef">iota</span>
 </span></span><span style="display:flex;"><span>   <span style="color:#a6e22e">bracket</span>         <span style="color:#a6e22e">tokenType</span> = <span style="color:#66d9ef">iota</span>
 </span></span><span style="display:flex;"><span>   <span style="color:#a6e22e">or</span>              <span style="color:#a6e22e">tokenType</span> = <span style="color:#66d9ef">iota</span>
-</span></span><span style="display:flex;"><span>   <span style="color:#a6e22e">quantifier</span>      <span style="color:#a6e22e">tokenType</span> = <span style="color:#66d9ef">iota</span>
+</span></span><span style="display:flex;"><span>   <span style="color:#a6e22e">repeat</span>          <span style="color:#a6e22e">tokenType</span> = <span style="color:#66d9ef">iota</span>
 </span></span><span style="display:flex;"><span>   <span style="color:#a6e22e">literal</span>         <span style="color:#a6e22e">tokenType</span> = <span style="color:#66d9ef">iota</span>
 </span></span><span style="display:flex;"><span>   <span style="color:#a6e22e">groupUncaptured</span> <span style="color:#a6e22e">tokenType</span> = <span style="color:#66d9ef">iota</span>
 </span></span><span style="display:flex;"><span>)
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">type</span> <span style="color:#a6e22e">token</span> <span style="color:#66d9ef">struct</span> {
-</span></span><span style="display:flex;"><span>   <span style="color:#a6e22e">tokenType</span> <span style="color:#a6e22e">tokenType</span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">type</span> <span style="color:#a6e22e">token</span> <span style="color:#66d9ef">struct</span> { <span style="color:#75715e">// &lt;3&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>   <span style="color:#a6e22e">tokenType</span> <span style="color:#a6e22e">tokenType</span>
 </span></span><span style="display:flex;"><span>   <span style="color:#75715e">// the payload required for each token will be different 
 </span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>   <span style="color:#75715e">// so we need to be flexible with the type
 </span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>   <span style="color:#a6e22e">value</span>     <span style="color:#66d9ef">interface</span>{}
 </span></span><span style="display:flex;"><span>}
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">type</span> <span style="color:#a6e22e">parseContext</span> <span style="color:#66d9ef">struct</span> {
-</span></span><span style="display:flex;"><span>   <span style="color:#75715e">// the index of the character we&#39;re processing
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">type</span> <span style="color:#a6e22e">parseContext</span> <span style="color:#66d9ef">struct</span> { <span style="color:#75715e">// &lt;4&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>   <span style="color:#75715e">// the index of the character we&#39;re processing
 </span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>   <span style="color:#75715e">// in the regex string
 </span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>   <span style="color:#a6e22e">pos</span>    <span style="color:#66d9ef">int</span>
 </span></span><span style="display:flex;"><span>   <span style="color:#a6e22e">tokens</span> []<span style="color:#a6e22e">token</span>
 </span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>Now, next is our parsing algorithm:</p>
+</span></span></code></pre></div><ol>
+<li>it&rsquo;s just a type alias for the character type</li>
+<li>constants for specifying the type of the token we are working with</li>
+<li>the main token struct, it has a <em>type</em> and a <em>value</em> which can be anything depending on the given type</li>
+<li><code>parseContext</code> will help us keep track of our positions and will hold the tokens parsed so far</li>
+</ol>
+<p>Now, next is our parsing algorithm:</p>
 <div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">parse</span>(<span style="color:#a6e22e">regex</span> <span style="color:#66d9ef">string</span>) <span style="color:#f92672">*</span><span style="color:#a6e22e">parseContext</span> {
 </span></span><span style="display:flex;"><span>   <span style="color:#a6e22e">ctx</span> <span style="color:#f92672">:=</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">parseContext</span>{
 </span></span><span style="display:flex;"><span>      <span style="color:#a6e22e">pos</span>:    <span style="color:#ae81ff">0</span>,
@@ -85,40 +105,53 @@ Before getting into the parsing algorithm, let&rsquo;s define some structs.</p>
 </span></span><span style="display:flex;"><span>  
 </span></span><span style="display:flex;"><span>   <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">ctx</span>
 </span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p><code>parseContext</code> object is useful for us to keep track of our current position and save the already parsed tokens. So the basic idea is that we loop through each character and process it until we reach to the end of the regex string. Next, let&rsquo;s take a look at the process method. It&rsquo;s a bit more involved, so let&rsquo;s take it step by step.</p>
+</span></span></code></pre></div><p>The basic idea is that we loop through each character and process it until we reach to the end of the regex string. Next, let&rsquo;s take a look at the <code>process</code> method. It&rsquo;s a bit more involved, so let&rsquo;s take it step by step.</p>
 <div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">process</span>(<span style="color:#a6e22e">regex</span> <span style="color:#66d9ef">string</span>, <span style="color:#a6e22e">ctx</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">parseContext</span>) {
-</span></span><span style="display:flex;"><span> <span style="color:#a6e22e">ch</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">regex</span>[<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span>]
-</span></span><span style="display:flex;"><span> <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">ch</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;(&#39;</span> {
-</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">groupCtx</span> <span style="color:#f92672">:=</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">parseContext</span>{
-</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">pos</span>:    <span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span>,
-</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">tokens</span>: []<span style="color:#a6e22e">token</span>{},
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">parseGroup</span>(<span style="color:#a6e22e">regex</span>, <span style="color:#a6e22e">groupCtx</span>)
-</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">tokens</span> = append(<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">tokens</span>, <span style="color:#a6e22e">token</span>{
-</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">tokenType</span>: <span style="color:#a6e22e">group</span>,
-</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">value</span>:     <span style="color:#a6e22e">groupCtx</span>.<span style="color:#a6e22e">tokens</span>,
-</span></span><span style="display:flex;"><span>    })
-</span></span><span style="display:flex;"><span> } <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">ch</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;[&#39;</span> {
-</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">parseBracket</span>(<span style="color:#a6e22e">regex</span>, <span style="color:#a6e22e">ctx</span>)
-</span></span><span style="display:flex;"><span> } <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">ch</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;|&#39;</span> {
-</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">parseOr</span>(<span style="color:#a6e22e">regex</span>, <span style="color:#a6e22e">ctx</span>)
-</span></span><span style="display:flex;"><span> } <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">ch</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;*&#39;</span> <span style="color:#f92672">||</span> <span style="color:#a6e22e">ch</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;?&#39;</span> <span style="color:#f92672">||</span> <span style="color:#a6e22e">ch</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;+&#39;</span> {
-</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">parseRepeat</span>(<span style="color:#a6e22e">regex</span>, <span style="color:#a6e22e">ctx</span>)
-</span></span><span style="display:flex;"><span> } <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">ch</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;{&#39;</span> {
-</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">parseRepeatSpecified</span>(<span style="color:#a6e22e">regex</span>, <span style="color:#a6e22e">ctx</span>)
-</span></span><span style="display:flex;"><span> } <span style="color:#66d9ef">else</span> {
-</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// literal
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">t</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">token</span>{
-</span></span><span style="display:flex;"><span>      <span style="color:#a6e22e">tokenType</span>: <span style="color:#a6e22e">literal</span>,
-</span></span><span style="display:flex;"><span>      <span style="color:#a6e22e">value</span>:     <span style="color:#a6e22e">ch</span>,
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>  
-</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">tokens</span> = append(<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">tokens</span>, <span style="color:#a6e22e">t</span>)
-</span></span><span style="display:flex;"><span> }
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">ch</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">regex</span>[<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span>]
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">ch</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;(&#39;</span> { <span style="color:#75715e">// &lt;1&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#a6e22e">groupCtx</span> <span style="color:#f92672">:=</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">parseContext</span>{
+</span></span><span style="display:flex;"><span>			<span style="color:#a6e22e">pos</span>:    <span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span>,
+</span></span><span style="display:flex;"><span>			<span style="color:#a6e22e">tokens</span>: []<span style="color:#a6e22e">token</span>{},
+</span></span><span style="display:flex;"><span>		}
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">parseGroup</span>(<span style="color:#a6e22e">regex</span>, <span style="color:#a6e22e">groupCtx</span>)
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">tokens</span> = append(<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">tokens</span>, <span style="color:#a6e22e">token</span>{
+</span></span><span style="display:flex;"><span>			<span style="color:#a6e22e">tokenType</span>: <span style="color:#a6e22e">group</span>,
+</span></span><span style="display:flex;"><span>			<span style="color:#a6e22e">value</span>:     <span style="color:#a6e22e">groupCtx</span>.<span style="color:#a6e22e">tokens</span>,
+</span></span><span style="display:flex;"><span>		})
+</span></span><span style="display:flex;"><span>	} <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">ch</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;[&#39;</span> { <span style="color:#75715e">// &lt;2&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#a6e22e">parseBracket</span>(<span style="color:#a6e22e">regex</span>, <span style="color:#a6e22e">ctx</span>)
+</span></span><span style="display:flex;"><span>	} <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">ch</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;|&#39;</span> { <span style="color:#75715e">// &lt;3&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#a6e22e">parseOr</span>(<span style="color:#a6e22e">regex</span>, <span style="color:#a6e22e">ctx</span>)
+</span></span><span style="display:flex;"><span>	} <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">ch</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;*&#39;</span> <span style="color:#f92672">||</span> <span style="color:#a6e22e">ch</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;?&#39;</span> <span style="color:#f92672">||</span> <span style="color:#a6e22e">ch</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;+&#39;</span> { <span style="color:#75715e">// &lt;4&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#a6e22e">parseRepeat</span>(<span style="color:#a6e22e">regex</span>, <span style="color:#a6e22e">ctx</span>)
+</span></span><span style="display:flex;"><span>	} <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">ch</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;{&#39;</span> { <span style="color:#75715e">// &lt;5&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#a6e22e">parseRepeatSpecified</span>(<span style="color:#a6e22e">regex</span>, <span style="color:#a6e22e">ctx</span>)
+</span></span><span style="display:flex;"><span>	} <span style="color:#66d9ef">else</span> { <span style="color:#75715e">// &lt;6&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#75715e">// literal
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#a6e22e">t</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">token</span>{
+</span></span><span style="display:flex;"><span>			<span style="color:#a6e22e">tokenType</span>: <span style="color:#a6e22e">literal</span>,
+</span></span><span style="display:flex;"><span>			<span style="color:#a6e22e">value</span>:     <span style="color:#a6e22e">ch</span>,
+</span></span><span style="display:flex;"><span>		}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">tokens</span> = append(<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">tokens</span>, <span style="color:#a6e22e">t</span>)
+</span></span><span style="display:flex;"><span>	}
 </span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>As we mentioned earlier, we try to match the characters we recognize and use them to parse tokens. Let&rsquo;s take the first if statement. We check if the character is <code>(</code> - the opening parenthesis. It represents the start of a group. Thus we try to parse the next couple of characters expecting a string of characters that corresponds to a regex group. The same applies to all the other characters specified in conditions above. However, the steps following the match will be different for each character as they have different semantic meanings. Next, we&rsquo;ll examine each of the functions defined in the above snippet. </p>
-<p>Let&rsquo;s actually start from the very bottom because it&rsquo;s the simplest case. If the character is not recognized, then it probably is a literal. Please keep in mind that this is a simplified implementation. There are a lot of cases to consider when it comes to parsing regular expressions; for instance, 1 is a number, but depending on the context it can actually be a part of a backreference <code>\1</code> that refers to the first captured group. Our simplified algorithm also does not consider the escape characters. 
-Next, let&rsquo;s take a look at the parsing of group expressions. This is the implementation:</p>
+</span></span></code></pre></div><p>As we mentioned earlier, we try to match the characters we recognize and use them to parse tokens.</p>
+<ol>
+<li>if the current character is <code>(</code> - the opening parenthesis, we know that it needs to be a regex group, thus we try to parse the next couple of characters expecting a string of characters that corresponds to a regex group.</li>
+<li>if it&rsquo;s <code>[</code> - the opening bracket, we know that it&rsquo;s a bracket expression, so we proceed accordingly</li>
+<li>if the character is a vertical pipe - <code>|</code>, that&rsquo;s an Or expression (alternative).</li>
+<li>the characters <code>*</code>, <code>+</code> and <code>?</code> all represent repetition. I know that <code>?</code> means optional, but in terms of repetition, it simply means that the character repeats at most once.</li>
+<li>curly braces specify repetition as well. In fact, the previous repetition options can all be specified using braces:
+<ul>
+<li><code>a* == a{0,}</code></li>
+<li><code>a+ == a{1,}</code></li>
+<li><code>a? == a{0,1}</code></li>
+</ul>
+</li>
+<li>if the character did not match with anything, we consider it as a literal. Please keep in mind that this is a simplified implementation. There are a lot of cases to consider when it comes to parsing regular expressions; for instance, 1 is a literal, but depending on the context it can actually be a part of a backreference <code>\1</code> that refers to the first captured group. Our simplified algorithm also DOES NOT consider the escape characters (which means <code>\a</code> is considered as a concatenation of two literals: <code>\</code> and <code>a</code>).</li>
+</ol>
+<p>Next, we&rsquo;ll examine each of the functions defined in the above snippet. Let&rsquo;s start with the parsing of group expressions <strong><em>(1)</em></strong>:</p>
 <div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">parseGroup</span>(<span style="color:#a6e22e">regex</span> <span style="color:#66d9ef">string</span>, <span style="color:#a6e22e">ctx</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">parseContext</span>) {
 </span></span><span style="display:flex;"><span>   <span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span> <span style="color:#f92672">+=</span> <span style="color:#ae81ff">1</span> <span style="color:#75715e">// get past the LPAREN (
 </span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>   <span style="color:#66d9ef">for</span> <span style="color:#a6e22e">regex</span>[<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span>] <span style="color:#f92672">!=</span> <span style="color:#e6db74">&#39;)&#39;</span> {
@@ -126,7 +159,7 @@ Next, let&rsquo;s take a look at the parsing of group expressions. This is the i
 </span></span><span style="display:flex;"><span>      <span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span> <span style="color:#f92672">+=</span> <span style="color:#ae81ff">1</span>
 </span></span><span style="display:flex;"><span>   }
 </span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>It&rsquo;s extremely simple, we process each character like we did in the parse method until we encounter the closing parenthesis. We will not cover the error handling in this tutorial, so we&rsquo;re simply not checking if the index is still within bounds. It will panic anyway. But what about the extra code around <code>parseGroup</code>? What happens there? Here&rsquo;s the snippet:</p>
+</span></span></code></pre></div><p>We process each character like we did in the parse method until we encounter the closing parenthesis. We will not cover the error handling in this tutorial, so we&rsquo;re simply not checking if the index is still within bounds. It will panic anyway. But what about the extra code around <code>parseGroup</code> in the <code>process</code> function? What happens there? Here&rsquo;s the snippet:</p>
 <div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#75715e">// snippet from the `process` function
 </span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#a6e22e">groupCtx</span> <span style="color:#f92672">:=</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">parseContext</span>{
 </span></span><span style="display:flex;"><span>   <span style="color:#a6e22e">pos</span>:    <span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span>,
@@ -140,80 +173,199 @@ Next, let&rsquo;s take a look at the parsing of group expressions. This is the i
 </span></span><span style="display:flex;"><span>   <span style="color:#a6e22e">tokenType</span>: <span style="color:#a6e22e">group</span>,
 </span></span><span style="display:flex;"><span>   <span style="color:#a6e22e">value</span>:     <span style="color:#a6e22e">groupCtx</span>.<span style="color:#a6e22e">tokens</span>,
 </span></span><span style="display:flex;"><span>})
-</span></span></code></pre></div><p>Basically, we create a new context specific to each group, so that we&rsquo;ll be able to bundle together all the tokens within a specific group without dealing with the top level context object. Let&rsquo;s now see how we can parse bracket expressions. This is the whole function, but we&rsquo;ll cover it step by step.</p>
+</span></span></code></pre></div><p>We create a new context specific to each group, so that we&rsquo;ll be able to bundle together all the tokens within a specific group without dealing with the top level context object. </p>
+<p>Let&rsquo;s now see how we can parse bracket expressions <strong><em>(2)</em></strong>. This is the whole function, but we&rsquo;ll cover it step by step.</p>
 <div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">parseBracket</span>(<span style="color:#a6e22e">regex</span> <span style="color:#66d9ef">string</span>, <span style="color:#a6e22e">ctx</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">parseContext</span>) {
-</span></span><span style="display:flex;"><span>   <span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span><span style="color:#f92672">++</span> <span style="color:#75715e">// get past the LBRACKET
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>   <span style="color:#66d9ef">var</span> <span style="color:#a6e22e">literals</span> []<span style="color:#66d9ef">string</span>
-</span></span><span style="display:flex;"><span>   <span style="color:#66d9ef">for</span> <span style="color:#a6e22e">regex</span>[<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span>] <span style="color:#f92672">!=</span> <span style="color:#e6db74">&#39;]&#39;</span> {
-</span></span><span style="display:flex;"><span>      <span style="color:#a6e22e">ch</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">regex</span>[<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span>]
-</span></span><span style="display:flex;"><span>    
-</span></span><span style="display:flex;"><span>      <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">ch</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;-&#39;</span> {
-</span></span><span style="display:flex;"><span>         <span style="color:#a6e22e">next</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">regex</span>[<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span><span style="color:#f92672">+</span><span style="color:#ae81ff">1</span>]
-</span></span><span style="display:flex;"><span>         <span style="color:#a6e22e">prev</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">literals</span>[len(<span style="color:#a6e22e">literals</span>)<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>][<span style="color:#ae81ff">0</span>]
-</span></span><span style="display:flex;"><span>         <span style="color:#a6e22e">literals</span>[len(<span style="color:#a6e22e">literals</span>)<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>] = <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Sprintf</span>(<span style="color:#e6db74">&#34;%c%c&#34;</span>, <span style="color:#a6e22e">prev</span>, <span style="color:#a6e22e">next</span>)
-</span></span><span style="display:flex;"><span>         <span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span><span style="color:#f92672">++</span>
-</span></span><span style="display:flex;"><span>      } <span style="color:#66d9ef">else</span> {
-</span></span><span style="display:flex;"><span>         <span style="color:#a6e22e">literals</span> = append(<span style="color:#a6e22e">literals</span>, <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Sprintf</span>(<span style="color:#e6db74">&#34;%c&#34;</span>, <span style="color:#a6e22e">ch</span>))
-</span></span><span style="display:flex;"><span>      }
-</span></span><span style="display:flex;"><span>    
-</span></span><span style="display:flex;"><span>      <span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span><span style="color:#f92672">++</span>
-</span></span><span style="display:flex;"><span>   }
-</span></span><span style="display:flex;"><span>  
-</span></span><span style="display:flex;"><span>   <span style="color:#a6e22e">literalsSet</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">map</span>[<span style="color:#66d9ef">uint8</span>]<span style="color:#66d9ef">bool</span>{}
-</span></span><span style="display:flex;"><span>  
-</span></span><span style="display:flex;"><span>   <span style="color:#66d9ef">for</span> <span style="color:#a6e22e">_</span>, <span style="color:#a6e22e">l</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">literals</span> {
-</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> len(<span style="color:#a6e22e">l</span>) <span style="color:#f92672">==</span> <span style="color:#ae81ff">1</span> {
-</span></span><span style="display:flex;"><span>       <span style="color:#a6e22e">literalsSet</span>[<span style="color:#a6e22e">l</span>[<span style="color:#ae81ff">0</span>]] = <span style="color:#66d9ef">true</span>
-</span></span><span style="display:flex;"><span>    } <span style="color:#66d9ef">else</span> {
-</span></span><span style="display:flex;"><span>       <span style="color:#66d9ef">for</span> <span style="color:#a6e22e">i</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">l</span>[<span style="color:#ae81ff">0</span>]; <span style="color:#a6e22e">i</span> <span style="color:#f92672">&lt;=</span> <span style="color:#a6e22e">l</span>[<span style="color:#ae81ff">1</span>]; <span style="color:#a6e22e">i</span><span style="color:#f92672">++</span> {
-</span></span><span style="display:flex;"><span>          <span style="color:#a6e22e">literalsSet</span>[<span style="color:#a6e22e">i</span>] = <span style="color:#66d9ef">true</span>
-</span></span><span style="display:flex;"><span>       }
-</span></span><span style="display:flex;"><span>    }
-</span></span><span style="display:flex;"><span>   }
-</span></span><span style="display:flex;"><span>  
-</span></span><span style="display:flex;"><span>   <span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">tokens</span> = append(<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">tokens</span>, <span style="color:#a6e22e">token</span>{
-</span></span><span style="display:flex;"><span>      <span style="color:#a6e22e">tokenType</span>: <span style="color:#a6e22e">bracket</span>,
-</span></span><span style="display:flex;"><span>      <span style="color:#a6e22e">value</span>:     <span style="color:#a6e22e">literalsSet</span>,
-</span></span><span style="display:flex;"><span>   })
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>Similarly to the way we parsed the group expression, we go through each character till we reach the closing bracket character. For each character we check if it is - because that&rsquo;s the range indicator (e.g., <code>a-zK-Z2-8</code>). If it&rsquo;s not the range indicator we consider it a single literal, and save it to the list.</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">var</span> <span style="color:#a6e22e">literals</span> []<span style="color:#66d9ef">string</span>
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">for</span> <span style="color:#a6e22e">regex</span>[<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span>] <span style="color:#f92672">!=</span> <span style="color:#e6db74">&#39;]&#39;</span> {
-</span></span><span style="display:flex;"><span>  <span style="color:#a6e22e">ch</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">regex</span>[<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span>]
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span><span style="color:#f92672">++</span> <span style="color:#75715e">// get past the LBRACKET
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#66d9ef">var</span> <span style="color:#a6e22e">literals</span> []<span style="color:#66d9ef">string</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">regex</span>[<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span>] <span style="color:#f92672">!=</span> <span style="color:#e6db74">&#39;]&#39;</span> { <span style="color:#75715e">// &lt;1&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#a6e22e">ch</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">regex</span>[<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span>]
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">ch</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;-&#39;</span> {
-</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">next</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">regex</span>[<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span><span style="color:#f92672">+</span><span style="color:#ae81ff">1</span>]
-</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">prev</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">literals</span>[len(<span style="color:#a6e22e">literals</span>)<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>][<span style="color:#ae81ff">0</span>]
-</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">literals</span>[len(<span style="color:#a6e22e">literals</span>)<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>] = <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Sprintf</span>(<span style="color:#e6db74">&#34;%c%c&#34;</span>, <span style="color:#a6e22e">prev</span>, <span style="color:#a6e22e">next</span>)
-</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span><span style="color:#f92672">++</span>
-</span></span><span style="display:flex;"><span>  } <span style="color:#66d9ef">else</span> {
-</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">literals</span> = append(<span style="color:#a6e22e">literals</span>, <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Sprintf</span>(<span style="color:#e6db74">&#34;%c&#34;</span>, <span style="color:#a6e22e">ch</span>))
-</span></span><span style="display:flex;"><span>  }
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">ch</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;-&#39;</span> { <span style="color:#75715e">// &lt;2&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>			<span style="color:#a6e22e">next</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">regex</span>[<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span><span style="color:#f92672">+</span><span style="color:#ae81ff">1</span>]
+</span></span><span style="display:flex;"><span>			<span style="color:#a6e22e">prev</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">literals</span>[len(<span style="color:#a6e22e">literals</span>)<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>][<span style="color:#ae81ff">0</span>] <span style="color:#75715e">// &lt;2-1&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>			<span style="color:#a6e22e">literals</span>[len(<span style="color:#a6e22e">literals</span>)<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>] = <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Sprintf</span>(<span style="color:#e6db74">&#34;%c%c&#34;</span>, <span style="color:#a6e22e">prev</span>, <span style="color:#a6e22e">next</span>) <span style="color:#75715e">// &lt;2-2&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>			<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span><span style="color:#f92672">++</span>
+</span></span><span style="display:flex;"><span>		} <span style="color:#66d9ef">else</span> { <span style="color:#75715e">// &lt;3&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>			<span style="color:#a6e22e">literals</span> = append(<span style="color:#a6e22e">literals</span>, <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Sprintf</span>(<span style="color:#e6db74">&#34;%c&#34;</span>, <span style="color:#a6e22e">ch</span>))
+</span></span><span style="display:flex;"><span>		}
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>  <span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span><span style="color:#f92672">++</span>
-</span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><p>When it is indeed the range indicator, we take the next character from the regex string, and the previous character from the list of literals (<em>it&rsquo;s the last character in that list</em>). Then we save it back to the list as 2 characters together. We could choose a different way of saving the parsed literals, but I find this to be simple and easy to understand.
-Moving on, now we have a list of literals and ranges. But those can contain duplicates. Consider the following regex: <code>[a-me-s]</code> . There&rsquo;s a clear overlap between the ranges.</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#a6e22e">literalsSet</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">map</span>[<span style="color:#66d9ef">uint8</span>]<span style="color:#66d9ef">bool</span>{}
-</span></span><span style="display:flex;"><span>  
-</span></span><span style="display:flex;"><span><span style="color:#66d9ef">for</span> <span style="color:#a6e22e">_</span>, <span style="color:#a6e22e">l</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">literals</span> {
-</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> len(<span style="color:#a6e22e">l</span>) <span style="color:#f92672">==</span> <span style="color:#ae81ff">1</span> {
-</span></span><span style="display:flex;"><span>     <span style="color:#a6e22e">literalsSet</span>[<span style="color:#a6e22e">l</span>[<span style="color:#ae81ff">0</span>]] = <span style="color:#66d9ef">true</span>
-</span></span><span style="display:flex;"><span>  } <span style="color:#66d9ef">else</span> {
-</span></span><span style="display:flex;"><span>     <span style="color:#66d9ef">for</span> <span style="color:#a6e22e">i</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">l</span>[<span style="color:#ae81ff">0</span>]; <span style="color:#a6e22e">i</span> <span style="color:#f92672">&lt;=</span> <span style="color:#a6e22e">l</span>[<span style="color:#ae81ff">1</span>]; <span style="color:#a6e22e">i</span><span style="color:#f92672">++</span> {
-</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">literalsSet</span>[<span style="color:#a6e22e">i</span>] = <span style="color:#66d9ef">true</span>
-</span></span><span style="display:flex;"><span>     }
-</span></span><span style="display:flex;"><span>  }
-</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span><span style="color:#f92672">++</span> <span style="color:#75715e">// &lt;4&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	}
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span><span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">tokens</span> = append(<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">tokens</span>, <span style="color:#a6e22e">token</span>{
-</span></span><span style="display:flex;"><span>  <span style="color:#a6e22e">tokenType</span>: <span style="color:#a6e22e">bracket</span>,
-</span></span><span style="display:flex;"><span>  <span style="color:#a6e22e">value</span>:     <span style="color:#a6e22e">literalsSet</span>,
-</span></span><span style="display:flex;"><span>})
-</span></span></code></pre></div><p>This part of the algorithm is pretty simple, we go over the saved values, and check if they are literals or ranges. If ranges we go over each character in the range and add it to the set. By definition, sets do not contain duplicates, so that gets job done. Since we&rsquo;re implementing this in Golang, we are using a map because there are no natively provided sets in Golang, and installing a library just for a set is unnecessary. Finally, once we have all the duplicates removed, we save the bracket token to our list of tokens.</p>
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">literalsSet</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">map</span>[<span style="color:#66d9ef">uint8</span>]<span style="color:#66d9ef">bool</span>{}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">_</span>, <span style="color:#a6e22e">l</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">literals</span> { <span style="color:#75715e">// &lt;5&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">i</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">l</span>[<span style="color:#ae81ff">0</span>]; <span style="color:#a6e22e">i</span> <span style="color:#f92672">&lt;=</span> <span style="color:#a6e22e">l</span>[len(<span style="color:#a6e22e">l</span>)<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>]; <span style="color:#a6e22e">i</span><span style="color:#f92672">++</span> { <span style="color:#75715e">// &lt;6&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>			<span style="color:#a6e22e">literalsSet</span>[<span style="color:#a6e22e">i</span>] = <span style="color:#66d9ef">true</span>
+</span></span><span style="display:flex;"><span>		}
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">tokens</span> = append(<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">tokens</span>, <span style="color:#a6e22e">token</span>{ <span style="color:#75715e">// &lt;7&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#a6e22e">tokenType</span>: <span style="color:#a6e22e">bracket</span>,
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">value</span>:     <span style="color:#a6e22e">literalsSet</span>,
+</span></span><span style="display:flex;"><span>	})
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><ol>
+<li>Similarly to the way we parsed the group expression, we go through each character till we reach the closing bracket character (<code>]</code>).</li>
+<li>For each character we check if it is <code>-</code> because that&rsquo;s the range indicator (e.g., <code>a-zK-Z2-8</code>).
+<ol>
+<li>When it is indeed the range indicator, we take the next character from the regex string, and the previous character from the list of literals (<em>it&rsquo;s the last character in that list</em>).</li>
+<li>Then we save it back to the list as 2 characters together. We could choose a different way of saving the parsed literals, but I find this to be simple and easy to understand.</li>
+</ol>
+</li>
+<li>If it&rsquo;s not the range indicator we consider it a single literal, and save it to the list.</li>
+<li>Move on to the next character</li>
+<li><code>literals</code> list contains both literals and ranges. But those may contain duplicates. Consider the following regex: <code>[a-me-s]</code> . There&rsquo;s a clear overlap between the ranges. We go over the saved values and each literal to the <code>literalsSet</code>. By definition, sets do not contain duplicates, so that gets the job done. Since we&rsquo;re implementing this in Golang, we are using a map because there are no natively provided sets in Golang, and installing a library just for a set is unnecessary.</li>
+<li>Add each character from the start till the end of the saved value.
+<ol>
+<li>In single literals, this will only add the literal itself</li>
+<li>In ranges, it will add everything from the first character till the last character (inclusive).</li>
+</ol>
+</li>
+<li>Finally, once we have all the duplicates removed, we save the bracket token to our list of tokens.</li>
+</ol>
+<p>Next in line is <code>parseOr</code> which is able to parse alternations <strong><em>(3)</em></strong>.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">parseOr</span>(<span style="color:#a6e22e">regex</span> <span style="color:#66d9ef">string</span>, <span style="color:#a6e22e">ctx</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">parseContext</span>) {
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">// &lt;1:start&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#a6e22e">rhsContext</span> <span style="color:#f92672">:=</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">parseContext</span>{
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">pos</span>:    <span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span>,
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">tokens</span>: []<span style="color:#a6e22e">token</span>{},
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">rhsContext</span>.<span style="color:#a6e22e">pos</span> <span style="color:#f92672">+=</span> <span style="color:#ae81ff">1</span> <span style="color:#75715e">// get past |
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">rhsContext</span>.<span style="color:#a6e22e">pos</span> &lt; len(<span style="color:#a6e22e">regex</span>) <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">regex</span>[<span style="color:#a6e22e">rhsContext</span>.<span style="color:#a6e22e">pos</span>] <span style="color:#f92672">!=</span> <span style="color:#e6db74">&#39;)&#39;</span> {
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">process</span>(<span style="color:#a6e22e">regex</span>, <span style="color:#a6e22e">rhsContext</span>)
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">rhsContext</span>.<span style="color:#a6e22e">pos</span> <span style="color:#f92672">+=</span> <span style="color:#ae81ff">1</span>
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">// &lt;1:end&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">// both sides of the OR expression
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#a6e22e">left</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">token</span>{
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">tokenType</span>: <span style="color:#a6e22e">groupUncaptured</span>,
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">value</span>:     <span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">tokens</span>, <span style="color:#75715e">// &lt;2&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">right</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">token</span>{ <span style="color:#75715e">// &lt;3&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#a6e22e">tokenType</span>: <span style="color:#a6e22e">groupUncaptured</span>,
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">value</span>:     <span style="color:#a6e22e">rhsContext</span>.<span style="color:#a6e22e">tokens</span>,
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span> = <span style="color:#a6e22e">rhsContext</span>.<span style="color:#a6e22e">pos</span> <span style="color:#75715e">// &lt;4&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">tokens</span> = []<span style="color:#a6e22e">token</span>{{ <span style="color:#75715e">// &lt;5&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#a6e22e">tokenType</span>: <span style="color:#a6e22e">or</span>,
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">value</span>:     []<span style="color:#a6e22e">token</span>{<span style="color:#a6e22e">left</span>, <span style="color:#a6e22e">right</span>},
+</span></span><span style="display:flex;"><span>	}}
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><ol>
+<li>The alternation (<em>or</em>) operation has the following syntax: <code>&lt;left&gt;|&lt;right&gt;</code> or <code>(&lt;left&gt;|&lt;right&gt;)</code> meaning it is an alternation between what&rsquo;s in the left hand side and what&rsquo;s on the right hand side. By the time we encounter the <code>|</code> symbol, we&rsquo;ve already parsed everything to the left of it. Now, it&rsquo;s time to parse everything to the right. It&rsquo;s almost the same code as parsing groups.  We create a right-hand-side specific empty context, and collect all the tokens into it. We do this until the end of the regex string or until we face a closing parenthesis.</li>
+<li>Now that we are done parsing both sides, it&rsquo;s time to create the alternation token. The left side will contain all the tokens that were in the original context object, because it contains all the tokens we have parsed so far.</li>
+<li>For the right hand side, we take all the tokens collected into the <code>rhsContext</code> object. For both tokens, we use <code>groupUncaptured</code> as the type, it&rsquo;s simply a type created to denote a bundle of tokens.</li>
+<li>We update the position of the original context.</li>
+<li>We create the alternation token and add it to the original context. One important thing is that we do not keep the old tokens in the original context as they are already contained in the alternation token.</li>
+</ol>
+<p>Now let&rsquo;s look at repetitions <strong><em>(4)</em></strong>.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">parseRepeat</span>(<span style="color:#a6e22e">regex</span> <span style="color:#66d9ef">string</span>, <span style="color:#a6e22e">ctx</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">parseContext</span>) {
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">ch</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">regex</span>[<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span>]
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">var</span> <span style="color:#a6e22e">min</span>, <span style="color:#a6e22e">max</span> <span style="color:#66d9ef">int</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">ch</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;*&#39;</span> {
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">min</span> = <span style="color:#ae81ff">0</span>
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">max</span> = <span style="color:#a6e22e">repeatInfinity</span>
+</span></span><span style="display:flex;"><span>	} <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">ch</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;?&#39;</span> {
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">min</span> = <span style="color:#ae81ff">0</span>
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">max</span> = <span style="color:#ae81ff">1</span>
+</span></span><span style="display:flex;"><span>	} <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>		<span style="color:#75715e">// ch == &#39;+&#39;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#a6e22e">min</span> = <span style="color:#ae81ff">1</span>
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">max</span> = <span style="color:#a6e22e">repeatInfinity</span>
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">// we need to wrap the last token with the quantifier data
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#75715e">// so that we know what the min and max apply to
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#a6e22e">lastToken</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">tokens</span>[len(<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">tokens</span>)<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>]
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">tokens</span>[len(<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">tokens</span>)<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>] = <span style="color:#a6e22e">token</span>{
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">tokenType</span>: <span style="color:#a6e22e">repeat</span>,
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">value</span>: <span style="color:#a6e22e">repeatPayload</span>{
+</span></span><span style="display:flex;"><span>			<span style="color:#a6e22e">min</span>:   <span style="color:#a6e22e">min</span>,
+</span></span><span style="display:flex;"><span>			<span style="color:#a6e22e">max</span>:   <span style="color:#a6e22e">max</span>,
+</span></span><span style="display:flex;"><span>			<span style="color:#a6e22e">token</span>: <span style="color:#a6e22e">lastToken</span>,
+</span></span><span style="display:flex;"><span>		},
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><ul>
+<li>Basic idea for this particular method is that each symbol here specifies some minimum and maximum number of repetitions. <code>repeatInfinity</code> is <code>-1</code>, but we use it as infinity.</li>
+<li>Once we have the boundaries set, we simply take  the last parsed token, wrap it in a <code>repeat</code> token and appropriate boundaries, and finally save it back to the same position in the tokens list.</li>
+</ul>
+<p>The other repetition expression has a bit longer code, but the idea is still the same <strong><em>(5)</em></strong>.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">parseRepeatSpecified</span>(<span style="color:#a6e22e">regex</span> <span style="color:#66d9ef">string</span>, <span style="color:#a6e22e">ctx</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">parseContext</span>) {
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">// +1 because we skip LCURLY { at the beginning
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#a6e22e">start</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span> <span style="color:#f92672">+</span> <span style="color:#ae81ff">1</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">// proceed until we reach to the end of the curly braces
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">regex</span>[<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span>] <span style="color:#f92672">!=</span> <span style="color:#e6db74">&#39;}&#39;</span> {
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span><span style="color:#f92672">++</span>
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">boundariesStr</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">regex</span>[<span style="color:#a6e22e">start</span>:<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span>] <span style="color:#75715e">// &lt;1&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#a6e22e">pieces</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">strings</span>.<span style="color:#a6e22e">Split</span>(<span style="color:#a6e22e">boundariesStr</span>, <span style="color:#e6db74">&#34;,&#34;</span>) <span style="color:#75715e">// &lt;2&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#66d9ef">var</span> <span style="color:#a6e22e">min</span>, <span style="color:#a6e22e">max</span> <span style="color:#66d9ef">int</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> len(<span style="color:#a6e22e">pieces</span>) <span style="color:#f92672">==</span> <span style="color:#ae81ff">1</span> { <span style="color:#75715e">// &lt;3&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">value</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">strconv</span>.<span style="color:#a6e22e">Atoi</span>(<span style="color:#a6e22e">pieces</span>[<span style="color:#ae81ff">0</span>]); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+</span></span><span style="display:flex;"><span>			panic(<span style="color:#a6e22e">err</span>.<span style="color:#a6e22e">Error</span>())
+</span></span><span style="display:flex;"><span>		} <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>			<span style="color:#a6e22e">min</span> = <span style="color:#a6e22e">value</span>
+</span></span><span style="display:flex;"><span>			<span style="color:#a6e22e">max</span> = <span style="color:#a6e22e">value</span>
+</span></span><span style="display:flex;"><span>		}
+</span></span><span style="display:flex;"><span>	} <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> len(<span style="color:#a6e22e">pieces</span>) <span style="color:#f92672">==</span> <span style="color:#ae81ff">2</span> { <span style="color:#75715e">// &lt;4&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">value</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">strconv</span>.<span style="color:#a6e22e">Atoi</span>(<span style="color:#a6e22e">pieces</span>[<span style="color:#ae81ff">0</span>]); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+</span></span><span style="display:flex;"><span>			panic(<span style="color:#a6e22e">err</span>.<span style="color:#a6e22e">Error</span>())
+</span></span><span style="display:flex;"><span>		} <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>			<span style="color:#a6e22e">min</span> = <span style="color:#a6e22e">value</span>
+</span></span><span style="display:flex;"><span>		}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">pieces</span>[<span style="color:#ae81ff">1</span>] <span style="color:#f92672">==</span> <span style="color:#e6db74">&#34;&#34;</span> {
+</span></span><span style="display:flex;"><span>			<span style="color:#a6e22e">max</span> = <span style="color:#a6e22e">repeatInfinity</span>
+</span></span><span style="display:flex;"><span>		} <span style="color:#66d9ef">else</span> <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">value</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">strconv</span>.<span style="color:#a6e22e">Atoi</span>(<span style="color:#a6e22e">pieces</span>[<span style="color:#ae81ff">1</span>]); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#66d9ef">nil</span> {
+</span></span><span style="display:flex;"><span>			panic(<span style="color:#a6e22e">err</span>.<span style="color:#a6e22e">Error</span>())
+</span></span><span style="display:flex;"><span>		} <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>			<span style="color:#a6e22e">max</span> = <span style="color:#a6e22e">value</span>
+</span></span><span style="display:flex;"><span>		}
+</span></span><span style="display:flex;"><span>	} <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>		panic(<span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Sprintf</span>(<span style="color:#e6db74">&#34;There must be either 1 or 2 values specified for the quantifier: provided &#39;%s&#39;&#34;</span>, <span style="color:#a6e22e">boundariesStr</span>))
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#75715e">// we need to wrap the last token with the quantifier data
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#75715e">// so that we know what the min and max apply to
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#75715e">// &lt;5&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#a6e22e">lastToken</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">tokens</span>[len(<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">tokens</span>)<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>]
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">tokens</span>[len(<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">tokens</span>)<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>] = <span style="color:#a6e22e">token</span>{
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">tokenType</span>: <span style="color:#a6e22e">repeat</span>,
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">value</span>: <span style="color:#a6e22e">repeatPayload</span>{
+</span></span><span style="display:flex;"><span>			<span style="color:#a6e22e">min</span>:   <span style="color:#a6e22e">min</span>,
+</span></span><span style="display:flex;"><span>			<span style="color:#a6e22e">max</span>:   <span style="color:#a6e22e">max</span>,
+</span></span><span style="display:flex;"><span>			<span style="color:#a6e22e">token</span>: <span style="color:#a6e22e">lastToken</span>,
+</span></span><span style="display:flex;"><span>		},
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><ol>
+<li>We need to get the string expression for boundaries which is everything between the curly braces <code>{}</code>.</li>
+<li>Next, we split that string into pieces separated by a comma <code>,</code></li>
+<li>If there&rsquo;s only one element (e.g., <code>{1}</code>) that means the exact number of repeats, so <code>min</code> and <code>max</code> will be the same. The error handling syntax of Golang may make things look complicated, but it just means that if there&rsquo;s any error while converting a string into a integer, just panic and stop everything.</li>
+<li>If there are two pieces, the first value is the min, and the second one is the max (e.g., <code>{3,7}</code>). However, there&rsquo;s a chance that the second value might be missing: <code>{3,}</code>. In this example, the token is required to repeat at least three times, but no upper bound is set which means it will be <code>repeatInfinity</code>. The error handling is the same as in <code>parseRepeat</code> function.</li>
+<li>Now that we have the boundaries, we take  the last parsed token, wrap it in a <code>repeat</code> token and appropriate boundaries, and save it back to the same position in the tokens list.</li>
+</ol>
+<p>With this, we conclude the steps required for parsing a regex string. Next, we&rsquo;ll examine how we can build a state machine out of those tokens we&rsquo;ve parsed.</p>
 <h2 id="building-the-epsilon-nfa">Building the epsilon-NFA</h2>
 <h2 id="matching">Matching</h2>
 <h2 id="references">References</h2>
+<ul>
+<li><a href="https://en.wikipedia.org/wiki/Thompson%27s_construction">https://en.wikipedia.org/wiki/Thompson%27s_construction</a></li>
+<li><a href="https://en.wikipedia.org/wiki/Regular_expression">https://en.wikipedia.org/wiki/Regular_expression</a></li>
+<li><a href="https://deniskyashif.com/2019/02/17/implementing-a-regular-expression-engine/">https://deniskyashif.com/2019/02/17/implementing-a-regular-expression-engine/</a></li>
+<li><a href="https://learn.microsoft.com/en-us/dotnet/standard/base-types/regular-expressions">https://learn.microsoft.com/en-us/dotnet/standard/base-types/regular-expressions</a></li>
+<li><a href="https://regex101.com/">https://regex101.com/</a></li>
+<li><a href="https://github.com/python/cpython/blob/main/Lib/test/re_tests.py">https://github.com/python/cpython/blob/main/Lib/test/re_tests.py</a></li>
+<li><a href="https://blog.cernera.me/converting-regular-expressions-to-postfix-notation-with-the-shunting-yard-algorithm/">https://blog.cernera.me/converting-regular-expressions-to-postfix-notation-with-the-shunting-yard-algorithm/</a></li>
+<li><a href="https://en.wikipedia.org/wiki/Shunting_yard_algorithm">https://en.wikipedia.org/wiki/Shunting_yard_algorithm</a></li>
+<li><a href="https://gobyexample.com/">https://gobyexample.com/</a></li>
+</ul>
 
 </article>
 
