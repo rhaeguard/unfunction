@@ -4,43 +4,66 @@ date = 2023-09-28T22:40:33-06:00
 draft = false
 +++
 
-In this article, we'll build a simple regular expression engine that will be able to use `[a-zA-Z0–9_]+@[a-zA-Z0–9]+\.[a-zA-Z]{2,}` pattern to check for the validity of email addresses. I will use Golang. We'll divide the whole process into 3 sections:
+In this article, we'll build a simple regular expression engine that will be able to use `[a-zA-Z0–9_]+@[a-zA-Z0–9]+.[a-zA-Z]{2,}` pattern to check for the validity of email addresses. We will use Golang. The article is divided into 3 sections:
 
 - [Parsing](#parsing)
 - [Building the epsilon-NFA](#building-the-epsilon-nfa)
 - [Matching](#matching)
 
 ## Parsing
-On its own, a regex string is just that - a string. We need to convert that input into something has a structure. In this section, we'll go over the process of parsing a regex string into tokens. 
+On its own, a regex string is just that - a string. We need to convert that input into something has a structure. For instance:
+
+```python
+# original regex string
+[a-zA-Z0–9_]+@[a-zA-Z0–9]+.[a-zA-Z]{2,}
+
+# regex tokens
+Repeat(1, infinity):
+   Range(a, b,...z, A, B,...,Z, 0,...,9,_)
+Literal(@)
+Repeat(1, infinity):
+   Range(a, b,...z, A, B,...,Z, 0,...,9)
+Literal(.)
+Repeat(2, infinity):
+   Range(a, b,...z, A, B,...,Z)
+```
+
+
+In this section, we'll go over the process of parsing a regex string into tokens. 
 The core idea when it comes to parsing regex is simple, we will look for the characters that have special meanings such as `* + ? () [] {}` etc. and will try to create tokens out of those. It'll be more clear once we start writing some code.
-Before getting into the parsing algorithm, let's define some structs.
+Before getting into the parsing algorithm, let's define some types and constants.
 
 ```go
-type tokenType uint8
+type tokenType uint8 // <1>
 
-const (
+const ( // <2>
    group           tokenType = iota
    bracket         tokenType = iota
    or              tokenType = iota
-   quantifier      tokenType = iota
+   repeat          tokenType = iota
    literal         tokenType = iota
    groupUncaptured tokenType = iota
 )
 
-type token struct {
+type token struct { // <3>
    tokenType tokenType
    // the payload required for each token will be different 
    // so we need to be flexible with the type
    value     interface{}
 }
 
-type parseContext struct {
+type parseContext struct { // <4>
    // the index of the character we're processing
    // in the regex string
    pos    int
    tokens []token
 }
 ```
+
+1. it's just a type alias for the character type
+2. constants for specifying the type of the token we are working with
+3. the main token struct, it has a _type_ and a _value_ which can be anything depending on the given type
+4. `parseContext` will help us keep track of our positions and will hold the tokens parsed so far
 
 Now, next is our parsing algorithm:
 
@@ -59,44 +82,53 @@ func parse(regex string) *parseContext {
 }
 ```
 
-`parseContext` object is useful for us to keep track of our current position and save the already parsed tokens. So the basic idea is that we loop through each character and process it until we reach to the end of the regex string. Next, let's take a look at the process method. It's a bit more involved, so let's take it step by step.
+The basic idea is that we loop through each character and process it until we reach to the end of the regex string. Next, let's take a look at the `process` method. It's a bit more involved, so let's take it step by step.
 
 ```go
 func process(regex string, ctx *parseContext) {
- ch := regex[ctx.pos]
- if ch == '(' {
-    groupCtx := &parseContext{
-     pos:    ctx.pos,
-     tokens: []token{},
-    }
-    parseGroup(regex, groupCtx)
-    ctx.tokens = append(ctx.tokens, token{
-     tokenType: group,
-     value:     groupCtx.tokens,
-    })
- } else if ch == '[' {
-    parseBracket(regex, ctx)
- } else if ch == '|' {
-    parseOr(regex, ctx)
- } else if ch == '*' || ch == '?' || ch == '+' {
-    parseRepeat(regex, ctx)
- } else if ch == '{' {
-    parseRepeatSpecified(regex, ctx)
- } else {
-    // literal
-    t := token{
-      tokenType: literal,
-      value:     ch,
-    }
-  
-    ctx.tokens = append(ctx.tokens, t)
- }
+	ch := regex[ctx.pos]
+	if ch == '(' { // <1>
+		groupCtx := &parseContext{
+			pos:    ctx.pos,
+			tokens: []token{},
+		}
+		parseGroup(regex, groupCtx)
+		ctx.tokens = append(ctx.tokens, token{
+			tokenType: group,
+			value:     groupCtx.tokens,
+		})
+	} else if ch == '[' { // <2>
+		parseBracket(regex, ctx)
+	} else if ch == '|' { // <3>
+		parseOr(regex, ctx)
+	} else if ch == '*' || ch == '?' || ch == '+' { // <4>
+		parseRepeat(regex, ctx)
+	} else if ch == '{' { // <5>
+		parseRepeatSpecified(regex, ctx)
+	} else { // <6>
+		// literal
+		t := token{
+			tokenType: literal,
+			value:     ch,
+		}
+
+		ctx.tokens = append(ctx.tokens, t)
+	}
 }
 ```
-As we mentioned earlier, we try to match the characters we recognize and use them to parse tokens. Let's take the first if statement. We check if the character is `(` - the opening parenthesis. It represents the start of a group. Thus we try to parse the next couple of characters expecting a string of characters that corresponds to a regex group. The same applies to all the other characters specified in conditions above. However, the steps following the match will be different for each character as they have different semantic meanings. Next, we'll examine each of the functions defined in the above snippet. 
+As we mentioned earlier, we try to match the characters we recognize and use them to parse tokens.
 
-Let's actually start from the very bottom because it's the simplest case. If the character is not recognized, then it probably is a literal. Please keep in mind that this is a simplified implementation. There are a lot of cases to consider when it comes to parsing regular expressions; for instance, 1 is a number, but depending on the context it can actually be a part of a backreference `\1` that refers to the first captured group. Our simplified algorithm also does not consider the escape characters. 
-Next, let's take a look at the parsing of group expressions. This is the implementation:
+1. if the current character is `(` - the opening parenthesis, we know that it needs to be a regex group, thus we try to parse the next couple of characters expecting a string of characters that corresponds to a regex group.
+2. if it's `[` - the opening bracket, we know that it's a bracket expression, so we proceed accordingly
+3. if the character is a vertical pipe - `|`, that's an Or expression (alternative). 
+4. the characters `*`, `+` and `?` all represent repetition. I know that `?` means optional, but in terms of repetition, it simply means that the character repeats at most once.
+5. curly braces specify repetition as well. In fact, the previous repetition options can all be specified using braces:
+   - `a* == a{0,}`
+   - `a+ == a{1,}`
+   - `a? == a{0,1}`
+6. if the character did not match with anything, we consider it as a literal. Please keep in mind that this is a simplified implementation. There are a lot of cases to consider when it comes to parsing regular expressions; for instance, 1 is a literal, but depending on the context it can actually be a part of a backreference `\1` that refers to the first captured group. Our simplified algorithm also DOES NOT consider the escape characters (which means `\a` is considered as a concatenation of two literals: `\` and `a`).
+
+Next, we'll examine each of the functions defined in the above snippet. Let's start with the parsing of group expressions **_(1)_**:
 
 ```go
 func parseGroup(regex string, ctx *parseContext) {
@@ -108,7 +140,7 @@ func parseGroup(regex string, ctx *parseContext) {
 }
 ```
 
-It's extremely simple, we process each character like we did in the parse method until we encounter the closing parenthesis. We will not cover the error handling in this tutorial, so we're simply not checking if the index is still within bounds. It will panic anyway. But what about the extra code around `parseGroup`? What happens there? Here's the snippet:
+We process each character like we did in the parse method until we encounter the closing parenthesis. We will not cover the error handling in this tutorial, so we're simply not checking if the index is still within bounds. It will panic anyway. But what about the extra code around `parseGroup` in the `process` function? What happens there? Here's the snippet:
 
 ```go
 // snippet from the `process` function
@@ -126,91 +158,205 @@ ctx.tokens = append(ctx.tokens, token{
 })
 ```
 
-Basically, we create a new context specific to each group, so that we'll be able to bundle together all the tokens within a specific group without dealing with the top level context object. Let's now see how we can parse bracket expressions. This is the whole function, but we'll cover it step by step.
+We create a new context specific to each group, so that we'll be able to bundle together all the tokens within a specific group without dealing with the top level context object. 
+
+Let's now see how we can parse bracket expressions **_(2)_**. This is the whole function, but we'll cover it step by step.
 
 ```go
 func parseBracket(regex string, ctx *parseContext) {
-   ctx.pos++ // get past the LBRACKET
-   var literals []string
-   for regex[ctx.pos] != ']' {
-      ch := regex[ctx.pos]
-    
-      if ch == '-' {
-         next := regex[ctx.pos+1]
-         prev := literals[len(literals)-1][0]
-         literals[len(literals)-1] = fmt.Sprintf("%c%c", prev, next)
-         ctx.pos++
-      } else {
-         literals = append(literals, fmt.Sprintf("%c", ch))
-      }
-    
-      ctx.pos++
-   }
-  
-   literalsSet := map[uint8]bool{}
-  
-   for _, l := range literals {
-    if len(l) == 1 {
-       literalsSet[l[0]] = true
-    } else {
-       for i := l[0]; i <= l[1]; i++ {
-          literalsSet[i] = true
-       }
-    }
-   }
-  
-   ctx.tokens = append(ctx.tokens, token{
-      tokenType: bracket,
-      value:     literalsSet,
-   })
+	ctx.pos++ // get past the LBRACKET
+	var literals []string
+	for regex[ctx.pos] != ']' { // <1>
+		ch := regex[ctx.pos]
+
+		if ch == '-' { // <2>
+			next := regex[ctx.pos+1]
+			prev := literals[len(literals)-1][0] // <2-1>
+			literals[len(literals)-1] = fmt.Sprintf("%c%c", prev, next) // <2-2>
+			ctx.pos++
+		} else { // <3>
+			literals = append(literals, fmt.Sprintf("%c", ch))
+		}
+
+		ctx.pos++ // <4>
+	}
+
+	literalsSet := map[uint8]bool{}
+
+	for _, l := range literals { // <5>
+		for i := l[0]; i <= l[len(l)-1]; i++ { // <6>
+			literalsSet[i] = true
+		}
+	}
+
+	ctx.tokens = append(ctx.tokens, token{ // <7>
+		tokenType: bracket,
+		value:     literalsSet,
+	})
 }
 ```
-Similarly to the way we parsed the group expression, we go through each character till we reach the closing bracket character. For each character we check if it is - because that's the range indicator (e.g., `a-zK-Z2-8`). If it's not the range indicator we consider it a single literal, and save it to the list.
+
+1. Similarly to the way we parsed the group expression, we go through each character till we reach the closing bracket character (`]`). 
+2. For each character we check if it is `-` because that's the range indicator (e.g., `a-zK-Z2-8`). 
+   1. When it is indeed the range indicator, we take the next character from the regex string, and the previous character from the list of literals (_it's the last character in that list_). 
+   2. Then we save it back to the list as 2 characters together. We could choose a different way of saving the parsed literals, but I find this to be simple and easy to understand.
+3. If it's not the range indicator we consider it a single literal, and save it to the list.
+4. Move on to the next character
+5. `literals` list contains both literals and ranges. But those may contain duplicates. Consider the following regex: `[a-me-s]` . There's a clear overlap between the ranges. We go over the saved values and each literal to the `literalsSet`. By definition, sets do not contain duplicates, so that gets the job done. Since we're implementing this in Golang, we are using a map because there are no natively provided sets in Golang, and installing a library just for a set is unnecessary. 
+6. Add each character from the start till the end of the saved value.
+   1. In single literals, this will only add the literal itself
+   2. In ranges, it will add everything from the first character till the last character (inclusive).
+7. Finally, once we have all the duplicates removed, we save the bracket token to our list of tokens.
+
+Next in line is `parseOr` which is able to parse alternations **_(3)_**.
 
 ```go
-var literals []string
-for regex[ctx.pos] != ']' {
-  ch := regex[ctx.pos]
+func parseOr(regex string, ctx *parseContext) {
+	// <1:start>
+	rhsContext := &parseContext{
+		pos:    ctx.pos,
+		tokens: []token{},
+	}
+	rhsContext.pos += 1 // get past |
+	for rhsContext.pos < len(regex) && regex[rhsContext.pos] != ')' {
+		process(regex, rhsContext)
+		rhsContext.pos += 1
+	}
+	// <1:end>
 
-  if ch == '-' {
-     next := regex[ctx.pos+1]
-     prev := literals[len(literals)-1][0]
-     literals[len(literals)-1] = fmt.Sprintf("%c%c", prev, next)
-     ctx.pos++
-  } else {
-     literals = append(literals, fmt.Sprintf("%c", ch))
-  }
+	// both sides of the OR expression
+	left := token{
+		tokenType: groupUncaptured,
+		value:     ctx.tokens, // <2>
+	}
 
-  ctx.pos++
+	right := token{ // <3>
+		tokenType: groupUncaptured,
+		value:     rhsContext.tokens,
+	}
+	ctx.pos = rhsContext.pos // <4>
+
+	ctx.tokens = []token{{ // <5>
+		tokenType: or,
+		value:     []token{left, right},
+	}}
 }
 ```
 
-When it is indeed the range indicator, we take the next character from the regex string, and the previous character from the list of literals (_it's the last character in that list_). Then we save it back to the list as 2 characters together. We could choose a different way of saving the parsed literals, but I find this to be simple and easy to understand.
-Moving on, now we have a list of literals and ranges. But those can contain duplicates. Consider the following regex: `[a-me-s]` . There's a clear overlap between the ranges.
+1. The alternation (_or_) operation has the following syntax: `<left>|<right>` or `(<left>|<right>)` meaning it is an alternation between what's in the left hand side and what's on the right hand side. By the time we encounter the `|` symbol, we've already parsed everything to the left of it. Now, it's time to parse everything to the right. It's almost the same code as parsing groups.  We create a right-hand-side specific empty context, and collect all the tokens into it. We do this until the end of the regex string or until we face a closing parenthesis. 
+2. Now that we are done parsing both sides, it's time to create the alternation token. The left side will contain all the tokens that were in the original context object, because it contains all the tokens we have parsed so far. 
+3. For the right hand side, we take all the tokens collected into the `rhsContext` object. For both tokens, we use `groupUncaptured` as the type, it's simply a type created to denote a bundle of tokens.
+4. We update the position of the original context.
+5. We create the alternation token and add it to the original context. One important thing is that we do not keep the old tokens in the original context as they are already contained in the alternation token.
+
+Now let's look at repetitions **_(4)_**.
 
 ```go
-literalsSet := map[uint8]bool{}
-  
-for _, l := range literals {
-  if len(l) == 1 {
-     literalsSet[l[0]] = true
-  } else {
-     for i := l[0]; i <= l[1]; i++ {
-        literalsSet[i] = true
-     }
-  }
+func parseRepeat(regex string, ctx *parseContext) {
+	ch := regex[ctx.pos]
+	var min, max int
+	if ch == '*' {
+		min = 0
+		max = repeatInfinity
+	} else if ch == '?' {
+		min = 0
+		max = 1
+	} else {
+		// ch == '+'
+		min = 1
+		max = repeatInfinity
+	}
+	// we need to wrap the last token with the quantifier data
+	// so that we know what the min and max apply to
+	lastToken := ctx.tokens[len(ctx.tokens)-1]
+	ctx.tokens[len(ctx.tokens)-1] = token{
+		tokenType: repeat,
+		value: repeatPayload{
+			min:   min,
+			max:   max,
+			token: lastToken,
+		},
+	}
 }
-
-ctx.tokens = append(ctx.tokens, token{
-  tokenType: bracket,
-  value:     literalsSet,
-})
 ```
 
-This part of the algorithm is pretty simple, we go over the saved values, and check if they are literals or ranges. If ranges we go over each character in the range and add it to the set. By definition, sets do not contain duplicates, so that gets job done. Since we're implementing this in Golang, we are using a map because there are no natively provided sets in Golang, and installing a library just for a set is unnecessary. Finally, once we have all the duplicates removed, we save the bracket token to our list of tokens.
+- Basic idea for this particular method is that each symbol here specifies some minimum and maximum number of repetitions. `repeatInfinity` is `-1`, but we use it as infinity. 
+- Once we have the boundaries set, we simply take  the last parsed token, wrap it in a `repeat` token and appropriate boundaries, and finally save it back to the same position in the tokens list. 
+
+The other repetition expression has a bit longer code, but the idea is still the same **_(5)_**.
+
+```go
+func parseRepeatSpecified(regex string, ctx *parseContext) {
+	// +1 because we skip LCURLY { at the beginning
+	start := ctx.pos + 1
+	// proceed until we reach to the end of the curly braces
+	for regex[ctx.pos] != '}' {
+		ctx.pos++
+	}
+
+	boundariesStr := regex[start:ctx.pos] // <1>
+	pieces := strings.Split(boundariesStr, ",") // <2>
+	var min, max int
+	if len(pieces) == 1 { // <3>
+		if value, err := strconv.Atoi(pieces[0]); err != nil {
+			panic(err.Error())
+		} else {
+			min = value
+			max = value
+		}
+	} else if len(pieces) == 2 { // <4>
+		if value, err := strconv.Atoi(pieces[0]); err != nil {
+			panic(err.Error())
+		} else {
+			min = value
+		}
+
+		if pieces[1] == "" {
+			max = repeatInfinity
+		} else if value, err := strconv.Atoi(pieces[1]); err != nil {
+			panic(err.Error())
+		} else {
+			max = value
+		}
+	} else {
+		panic(fmt.Sprintf("There must be either 1 or 2 values specified for the quantifier: provided '%s'", boundariesStr))
+	}
+
+	// we need to wrap the last token with the quantifier data
+	// so that we know what the min and max apply to
+	// <5>
+	lastToken := ctx.tokens[len(ctx.tokens)-1]
+	ctx.tokens[len(ctx.tokens)-1] = token{
+		tokenType: repeat,
+		value: repeatPayload{
+			min:   min,
+			max:   max,
+			token: lastToken,
+		},
+	}
+}
+```
+
+1. We need to get the string expression for boundaries which is everything between the curly braces `{}`.
+2. Next, we split that string into pieces separated by a comma `,`
+3. If there's only one element (e.g., `{1}`) that means the exact number of repeats, so `min` and `max` will be the same. The error handling syntax of Golang may make things look complicated, but it just means that if there's any error while converting a string into a integer, just panic and stop everything.
+4. If there are two pieces, the first value is the min, and the second one is the max (e.g., `{3,7}`). However, there's a chance that the second value might be missing: `{3,}`. In this example, the token is required to repeat at least three times, but no upper bound is set which means it will be `repeatInfinity`. The error handling is the same as in `parseRepeat` function.
+5. Now that we have the boundaries, we take  the last parsed token, wrap it in a `repeat` token and appropriate boundaries, and save it back to the same position in the tokens list. 
+
+With this, we conclude the steps required for parsing a regex string. Next, we'll examine how we can build a state machine out of those tokens we've parsed.
 
 ## Building the epsilon-NFA
 
 ## Matching
 
 ## References
+
+- https://en.wikipedia.org/wiki/Thompson%27s_construction
+- https://en.wikipedia.org/wiki/Regular_expression
+- https://deniskyashif.com/2019/02/17/implementing-a-regular-expression-engine/
+- https://learn.microsoft.com/en-us/dotnet/standard/base-types/regular-expressions
+- https://regex101.com/
+- https://github.com/python/cpython/blob/main/Lib/test/re_tests.py
+- https://blog.cernera.me/converting-regular-expressions-to-postfix-notation-with-the-shunting-yard-algorithm/
+- https://en.wikipedia.org/wiki/Shunting_yard_algorithm
+- https://gobyexample.com/
