@@ -18,13 +18,13 @@ Parsing Building the epsilon-NFA Matching Parsing On its own, a regex string is 
   
   
   
-  <link rel="stylesheet" href="/unfunction/css/main.1512790eb55ef069931f87fb452e614a3d9108d9963433adbd0ab266ef7133d0cfaf13ef7a8dc4c2cf26bfd01a2fed7d5dfa6c53d6478096b7f5b4f47ec7a04e.css" integrity="sha512-FRJ5DrVe8GmTH4f7RS5hSj2RCNmWNDOtvQqyZu9xM9DPrxPveo3Ews8mv9AaL&#43;19XfpsU9ZHgJa39bT0fsegTg==" />
+  <link rel="stylesheet" href="/unfunction/css/main.f258e387d11b0cbe3f30b888037616e7cceab80a2aa00830820dff82be83d2f39508afca0e411c8827565d13425f067c8477550586cd27cf07c72a24d395e08b.css" integrity="sha512-8ljjh9EbDL4/MLiIA3YW58zquAoqoAgwgg3/gr6D0vOVCK/KDkEciCdWXRNCXwZ8hHdVBYbNJ88Hxyok05Xgiw==" />
   
 </head>
 <body a="light">
         <main class="page-content" aria-label="Content">
             <div class="w">
-<a href="/unfunction/" style="font-size: large;">home</a>
+<a href="/unfunction/">home</a>
 <button class="theme-switch">dark</button>
 
 
@@ -353,6 +353,136 @@ Before getting into the parsing algorithm, let&rsquo;s define some types and con
 </ol>
 <p>With this, we conclude the steps required for parsing a regex string. Next, we&rsquo;ll examine how we can build a state machine out of those tokens we&rsquo;ve parsed.</p>
 <h2 id="building-the-epsilon-nfa">Building the epsilon-NFA</h2>
+<h3 id="whats-an-nfa">What&rsquo;s an NFA?</h3>
+<p>WIP</p>
+<h3 id="regular-expression-to-epsilon-nfa">Regular expression to epsilon-NFA</h3>
+<p>The previous step provides us with a list of tokens. We now need to convert these an epsilon-NFA. To achieve this, we will use an algorithm called Thompson&rsquo;s construction. We&rsquo;ll explain the algorithm with several visual examples and the corresponding code. But before we do that, let&rsquo;s go over the structure of the overall algorithm.</p>
+<p>To represent an NFA state, we&rsquo;ll use this simple structure:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">type</span> <span style="color:#a6e22e">state</span> <span style="color:#66d9ef">struct</span> {
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">start</span>       <span style="color:#66d9ef">bool</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">terminal</span>    <span style="color:#66d9ef">bool</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">transitions</span> <span style="color:#66d9ef">map</span>[<span style="color:#66d9ef">uint8</span>][]<span style="color:#f92672">*</span><span style="color:#a6e22e">state</span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><ol>
+<li><code>start</code> indicates whether the state&rsquo;s the entrypoint or not.</li>
+<li><code>terminal</code> indicates wheteher the state&rsquo;s the final state. Reaching this state means that the input matches with the regex.</li>
+<li><code>transitions</code> is a map where a character maps to a list of different states.</li>
+</ol>
+<p>This is the high-level visualization of the algorithm:</p>
+<p><img src="/unfunction/toNFA_explained.png" alt="Creating an NFA from regular expression, high level view"></p>
+<ul>
+<li>We will have a start (pink) and terminal (blue) states.</li>
+<li>For each token, we&rsquo;ll create a separate NFA, and these NFAs will be concatenated with epsilon transitions. Last state of the previous NFA, will be connected to the first state of the next NFA, like this:</li>
+</ul>
+<p><img src="/unfunction/toNFA_concat.png" alt="Concatenation process"></p>
+<ul>
+<li>There will be an epsilon transition from the start state to the first state (s1) of the concatenated NFAs.</li>
+<li>There will be an epsilon transition from the last state of the concatenated NFAs to the terminal state.</li>
+</ul>
+<p>Let&rsquo;s go over the same thing in code:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">const</span> <span style="color:#a6e22e">epsilonChar</span> <span style="color:#66d9ef">uint8</span> = <span style="color:#ae81ff">0</span> <span style="color:#75715e">// empty character
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">toNfa</span>(<span style="color:#a6e22e">ctx</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">parseContext</span>) <span style="color:#f92672">*</span><span style="color:#a6e22e">state</span> {
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">startState</span>, <span style="color:#a6e22e">endState</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">tokenToNfa</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">tokens</span>[<span style="color:#ae81ff">0</span>]) <span style="color:#75715e">// &lt;1&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">i</span> <span style="color:#f92672">:=</span> <span style="color:#ae81ff">1</span>; <span style="color:#a6e22e">i</span> &lt; len(<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">tokens</span>); <span style="color:#a6e22e">i</span><span style="color:#f92672">++</span> { <span style="color:#75715e">// &lt;2&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#a6e22e">startNext</span>, <span style="color:#a6e22e">endNext</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">tokenToNfa</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">tokens</span>[<span style="color:#a6e22e">i</span>]) <span style="color:#75715e">// &lt;3&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#a6e22e">endState</span>.<span style="color:#a6e22e">transitions</span>[<span style="color:#a6e22e">epsilonChar</span>] = append(<span style="color:#a6e22e">endState</span>.<span style="color:#a6e22e">transitions</span>[<span style="color:#a6e22e">epsilonChar</span>], <span style="color:#a6e22e">startNext</span>) <span style="color:#75715e">// &lt;4&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#a6e22e">endState</span> = <span style="color:#a6e22e">endNext</span> <span style="color:#75715e">// &lt;5&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">start</span> <span style="color:#f92672">:=</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">state</span>{ <span style="color:#75715e">// &lt;6&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#a6e22e">transitions</span>: <span style="color:#66d9ef">map</span>[<span style="color:#66d9ef">uint8</span>][]<span style="color:#f92672">*</span><span style="color:#a6e22e">state</span>{
+</span></span><span style="display:flex;"><span>			<span style="color:#a6e22e">epsilonChar</span>: {<span style="color:#a6e22e">startState</span>},
+</span></span><span style="display:flex;"><span>		},
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">start</span>: <span style="color:#66d9ef">true</span>,
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">end</span> <span style="color:#f92672">:=</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">state</span>{ <span style="color:#75715e">// 7
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#a6e22e">transitions</span>: <span style="color:#66d9ef">map</span>[<span style="color:#66d9ef">uint8</span>][]<span style="color:#f92672">*</span><span style="color:#a6e22e">state</span>{},
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">terminal</span>:    <span style="color:#66d9ef">true</span>,
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">endState</span>.<span style="color:#a6e22e">transitions</span>[<span style="color:#a6e22e">epsilonChar</span>] = append(<span style="color:#a6e22e">endState</span>.<span style="color:#a6e22e">transitions</span>[<span style="color:#a6e22e">epsilonChar</span>], <span style="color:#a6e22e">end</span>) <span style="color:#75715e">// &lt;8&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">start</span> <span style="color:#75715e">// &lt;9&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>}
+</span></span></code></pre></div><ol>
+<li>We take the first token, and convert that to an NFA. <code>tokenToNfa</code> function will be explained later. For now, just know that it creates an NFA from the given token, and returns the start and end states of this newly created NFA.</li>
+<li>We go over the rest of tokens</li>
+<li>We call <code>tokenToNfa</code> for each token and save the start and end states.</li>
+<li>We link the end state from the previous <code>tokenToNfa</code> call to the start state of the new NFA.</li>
+<li>Save the end state, because it will be useful in the next iteration</li>
+<li>We create the previously mentioned start state. This state now has an epsilon transition to the start state of the very first NFA we created.</li>
+<li>We create the terminal state.</li>
+<li>The end state of the last NFA we created now has an epsilon transition to the terminal state.</li>
+<li>Finally, we return the start state because that&rsquo;s the entrypoint.</li>
+</ol>
+<p>Now that we have an overall outline of what we&rsquo;re doing to construct our NFA, let&rsquo;s take a look at how each token is converted into an NFA.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#75715e">// returns (start, end)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">tokenToNfa</span>(<span style="color:#a6e22e">t</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">token</span>) (<span style="color:#f92672">*</span><span style="color:#a6e22e">state</span>, <span style="color:#f92672">*</span><span style="color:#a6e22e">state</span>) {
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">start</span> <span style="color:#f92672">:=</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">state</span>{
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">transitions</span>: <span style="color:#66d9ef">map</span>[<span style="color:#66d9ef">uint8</span>][]<span style="color:#f92672">*</span><span style="color:#a6e22e">state</span>{},
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">end</span> <span style="color:#f92672">:=</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">state</span>{
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">transitions</span>: <span style="color:#66d9ef">map</span>[<span style="color:#66d9ef">uint8</span>][]<span style="color:#f92672">*</span><span style="color:#a6e22e">state</span>{},
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">switch</span> <span style="color:#a6e22e">t</span>.<span style="color:#a6e22e">tokenType</span> {
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">case</span> <span style="color:#a6e22e">literal</span>:
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">case</span> <span style="color:#a6e22e">or</span>:
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">case</span> <span style="color:#a6e22e">bracket</span>:
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">case</span> <span style="color:#a6e22e">group</span>, <span style="color:#a6e22e">groupUncaptured</span>:
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">case</span> <span style="color:#a6e22e">repeat</span>:
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">default</span>:
+</span></span><span style="display:flex;"><span>		panic(<span style="color:#e6db74">&#34;unknown type of token&#34;</span>)
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">start</span>, <span style="color:#a6e22e">end</span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><ul>
+<li>The code above is the skeleton of the <code>tokenToNfa</code> function, we&rsquo;ll go over each token type and how it is handled.</li>
+<li>Overall, we create empty <code>start</code> and <code>end</code> states, perform some logic within switch statement, and return those variables.</li>
+</ul>
+<p>In the next couple of sections, we&rsquo;ll go over each token type, visualize the steps and finally show the code.</p>
+<h4 id="literals">Literals</h4>
+<p>Let&rsquo;s start with the literals as they are the simplest to explain.</p>
+<p><img src="/unfunction/tokenToNfa_literal.png" alt="literal to nfa"></p>
+<ul>
+<li>In order to go from <code>start</code> to <code>end</code>, we need the transition <code>ch</code>. <code>ch</code> represents a single character.</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">case</span> <span style="color:#a6e22e">literal</span>:
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">ch</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">t</span>.<span style="color:#a6e22e">value</span>.(<span style="color:#66d9ef">uint8</span>)
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">start</span>.<span style="color:#a6e22e">transitions</span>[<span style="color:#a6e22e">ch</span>] = []<span style="color:#f92672">*</span><span style="color:#a6e22e">state</span>{<span style="color:#a6e22e">end</span>}
+</span></span></code></pre></div><ul>
+<li>We can see the exact same thing in the code as well. <code>t.value</code> is referring to the value we saved in the <code>token</code> struct back when we were parsing the tokens.</li>
+</ul>
+<h4 id="oralternative">or/alternative</h4>
+<p><img src="/unfunction/tokenToNfa_or.png" alt="or to nfa"></p>
+<ul>
+<li>Or means a choice between two different paths. Recall that in the parsing phase, the value for or token had <em>left</em> and <em>right</em> sides (shown in the diagram as well). Each of these tokens represent different NFAs.</li>
+<li>To create the Or NFA, we need to have:
+<ul>
+<li>an epsilon transition from the start state to the starts of both left and right NFAs</li>
+<li>an epsilon transition from the ends of both left and right NFAs to the end state.</li>
+</ul>
+</li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">case</span> <span style="color:#a6e22e">or</span>:
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">values</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">t</span>.<span style="color:#a6e22e">value</span>.([]<span style="color:#a6e22e">token</span>)
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">left</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">values</span>[<span style="color:#ae81ff">0</span>]
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">right</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">values</span>[<span style="color:#ae81ff">1</span>]
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">s1</span>, <span style="color:#a6e22e">e1</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">tokenToNfa</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">left</span>) <span style="color:#75715e">// &lt;1&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#a6e22e">s2</span>, <span style="color:#a6e22e">e2</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">tokenToNfa</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">right</span>) <span style="color:#75715e">// &lt;1&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">start</span>.<span style="color:#a6e22e">transitions</span>[<span style="color:#a6e22e">epsilonChar</span>] = []<span style="color:#f92672">*</span><span style="color:#a6e22e">state</span>{<span style="color:#a6e22e">s1</span>, <span style="color:#a6e22e">s2</span>} <span style="color:#75715e">// &lt;2&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#a6e22e">e1</span>.<span style="color:#a6e22e">transitions</span>[<span style="color:#a6e22e">epsilonChar</span>] = []<span style="color:#f92672">*</span><span style="color:#a6e22e">state</span>{<span style="color:#a6e22e">end</span>} <span style="color:#75715e">// &lt;3&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#a6e22e">e2</span>.<span style="color:#a6e22e">transitions</span>[<span style="color:#a6e22e">epsilonChar</span>] = []<span style="color:#f92672">*</span><span style="color:#a6e22e">state</span>{<span style="color:#a6e22e">end</span>} <span style="color:#75715e">// &lt;3&gt;
+</span></span></span></code></pre></div><ol>
+<li>Creating both left and right NFAs</li>
+<li>Connecting the start state with the starts of both NFAs with an epsilon transition</li>
+<li>Connecting the end states of each NFA with the end state of the Or NFA.</li>
+</ol>
 <h2 id="matching">Matching</h2>
 <h2 id="references">References</h2>
 <ul>
