@@ -26,7 +26,7 @@
     border: none;
     outline: none;
     background: none;
-    font-family: monospace;
+    font-family: 'Trebuchet MS', 'Lucida Sans Unicode', 'Lucida Grande', 'Lucida Sans', Arial, sans-serif;
     cursor: pointer;
 
     &:visited { color: $--visited-link-color; }
@@ -35,7 +35,7 @@
 }
 
 @mixin dark-appearance {
-  @include theme(#212121, #fafafa, #eeeeee, #0071bc, #a359e9);
+  @include theme(#212121, #fafafad6, #eeeeee, #0071bc, #a359e9);
 }
 
 @mixin light-appearance {
@@ -59,7 +59,7 @@ body[a="light"] { @include light-appearance; }
 html { height: 100%; }
 
 body {
-  font-family: monospace;
+  font-family: 'Trebuchet MS', 'Lucida Sans Unicode', 'Lucida Grande', 'Lucida Sans', Arial, sans-serif;
   font-size: 16px;
   line-height: 1.4;
   margin: 0;

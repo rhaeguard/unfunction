@@ -347,6 +347,153 @@ With this, we conclude the steps required for parsing a regex string. Next, we'l
 
 ## Building the epsilon-NFA
 
+### What's an NFA?
+
+WIP
+
+### Regular expression to epsilon-NFA
+
+The previous step provides us with a list of tokens. We now need to convert these an epsilon-NFA. To achieve this, we will use an algorithm called Thompson's construction. We'll explain the algorithm with several visual examples and the corresponding code. But before we do that, let's go over the structure of the overall algorithm.
+
+To represent an NFA state, we'll use this simple structure:
+
+```go
+type state struct {
+	start       bool
+	terminal    bool
+	transitions map[uint8][]*state
+}
+```
+
+1. `start` indicates whether the state's the entrypoint or not.
+2. `terminal` indicates wheteher the state's the final state. Reaching this state means that the input matches with the regex.
+3. `transitions` is a map where a character maps to a list of different states.
+
+This is the high-level visualization of the algorithm:
+
+![Creating an NFA from regular expression, high level view](/unfunction/toNFA_explained.png)
+
+- We will have a start (pink) and terminal (blue) states.
+- For each token, we'll create a separate NFA, and these NFAs will be concatenated with epsilon transitions. Last state of the previous NFA, will be connected to the first state of the next NFA, like this:
+
+![Concatenation process](/unfunction/toNFA_concat.png)
+
+- There will be an epsilon transition from the start state to the first state (s1) of the concatenated NFAs.
+- There will be an epsilon transition from the last state of the concatenated NFAs to the terminal state.
+
+Let's go over the same thing in code:
+
+```go
+const epsilonChar uint8 = 0 // empty character
+
+func toNfa(ctx *parseContext) *state {
+	startState, endState := tokenToNfa(&ctx.tokens[0]) // <1>
+
+	for i := 1; i < len(ctx.tokens); i++ { // <2>
+		startNext, endNext := tokenToNfa(&ctx.tokens[i]) // <3>
+		endState.transitions[epsilonChar] = append(endState.transitions[epsilonChar], startNext) // <4>
+		endState = endNext // <5>
+	}
+
+	start := &state{ // <6>
+		transitions: map[uint8][]*state{
+			epsilonChar: {startState},
+		},
+		start: true,
+	}
+	end := &state{ // 7
+		transitions: map[uint8][]*state{},
+		terminal:    true,
+	}
+
+	endState.transitions[epsilonChar] = append(endState.transitions[epsilonChar], end) // <8>
+
+	return start // <9>
+}
+```
+
+1. We take the first token, and convert that to an NFA. `tokenToNfa` function will be explained later. For now, just know that it creates an NFA from the given token, and returns the start and end states of this newly created NFA.
+2. We go over the rest of tokens
+3. We call `tokenToNfa` for each token and save the start and end states.
+4. We link the end state from the previous `tokenToNfa` call to the start state of the new NFA.
+5. Save the end state, because it will be useful in the next iteration
+6. We create the previously mentioned start state. This state now has an epsilon transition to the start state of the very first NFA we created. 
+7. We create the terminal state. 
+8. The end state of the last NFA we created now has an epsilon transition to the terminal state.
+9. Finally, we return the start state because that's the entrypoint.
+
+Now that we have an overall outline of what we're doing to construct our NFA, let's take a look at how each token is converted into an NFA.
+
+```go
+// returns (start, end)
+func tokenToNfa(t *token) (*state, *state) {
+	start := &state{
+		transitions: map[uint8][]*state{},
+	}
+	end := &state{
+		transitions: map[uint8][]*state{},
+	}
+
+	switch t.tokenType {
+	case literal:
+	case or:
+	case bracket:
+	case group, groupUncaptured:
+	case repeat:
+	default:
+		panic("unknown type of token")
+	}
+
+	return start, end
+}
+```
+- The code above is the skeleton of the `tokenToNfa` function, we'll go over each token type and how it is handled.
+- Overall, we create empty `start` and `end` states, perform some logic within switch statement, and return those variables.
+
+In the next couple of sections, we'll go over each token type, visualize the steps and finally show the code.
+
+#### Literals
+
+Let's start with the literals as they are the simplest to explain.
+
+![literal to nfa](/unfunction/tokenToNfa_literal.png)
+
+- In order to go from `start` to `end`, we need the transition `ch`. `ch` represents a single character.
+
+```go
+case literal:
+	ch := t.value.(uint8)
+	start.transitions[ch] = []*state{end}
+```
+- We can see the exact same thing in the code as well. `t.value` is referring to the value we saved in the `token` struct back when we were parsing the tokens.
+
+#### or/alternative
+
+![or to nfa](/unfunction/tokenToNfa_or.png)
+
+- Or means a choice between two different paths. Recall that in the parsing phase, the value for or token had _left_ and _right_ sides (shown in the diagram as well). Each of these tokens represent different NFAs. 
+- To create the Or NFA, we need to have:
+	- an epsilon transition from the start state to the starts of both left and right NFAs
+	- an epsilon transition from the ends of both left and right NFAs to the end state.
+
+```go
+case or:
+	values := t.value.([]token)
+	left := values[0]
+	right := values[1]
+
+	s1, e1 := tokenToNfa(&left) // <1>
+	s2, e2 := tokenToNfa(&right) // <1>
+
+	start.transitions[epsilonChar] = []*state{s1, s2} // <2>
+	e1.transitions[epsilonChar] = []*state{end} // <3>
+	e2.transitions[epsilonChar] = []*state{end} // <3>
+```
+
+1. Creating both left and right NFAs
+2. Connecting the start state with the starts of both NFAs with an epsilon transition
+3. Connecting the end states of each NFA with the end state of the Or NFA.
+
 ## Matching
 
 ## References
