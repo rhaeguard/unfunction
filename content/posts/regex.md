@@ -1,7 +1,8 @@
 +++
 title = '[WIP] How to build a regex engine from scratch'
-date = 2023-09-28T22:40:33-06:00
+date = 2023-10-04T22:40:33-06:00
 draft = false
+github = 'rhaeguard/rgx'
 +++
 
 In this article, we'll build a simple regular expression engine that will be able to use `[a-zA-Z0–9_]+@[a-zA-Z0–9]+.[a-zA-Z]{2,}` pattern to check for the validity of email addresses. We will use Golang. The article is divided into 3 sections:
@@ -665,7 +666,83 @@ case repeat:
 9. Connect the end of the last NFA, to the end state.
 10. If the upper bound is infinity, add an epsilon transition from the end state to the start of the last NFA.
 
+#### Example
+
+Considering all the techniques we discussed above, this is what we would generate this regex: `19[5-9][0-9]`:
+
+![complete example](/unfunction/example_nfa_complete.png)
+
 ## Matching
+
+Final piece of our regex engine is the matching logic. The basic idea is that we'll feed each character of the test string, in order, to our current NFA state until we reach to the end of the string. If we finish the entire string and we're at the terminal state, it means the string matches with the regex.
+
+While going through the string, we'll use a cursor/pointer to a certain position in the string. The image below visualizes this. Keep in mind that, in addition to each index in the string, our pointer can also reference to the beginning of the string (prior to matching) and the end of the string (once we exhaust all the characters).
+
+![cursur positions](/unfunction/string_with_positions.png)
+
+In code, we'll have these helper constants and method.
+
+```go
+const (
+	startOfText uint8 = 1
+	endOfText   uint8 = 2
+)
+
+func getChar(input string, pos int) uint8 {
+	if pos >= len(input) {
+		return endOfText
+	}
+
+	if pos < 0 {
+		return startOfText
+	}
+
+	return input[pos]
+}
+```
+
+Now onto the code for matching:
+
+```go
+func (s *state) check(input string, pos int) bool { // <1>
+	ch := getChar(input, pos) // <2>
+
+	if ch == endOfText && s.terminal { // <3>
+		return true
+	}
+
+	if states := s.transitions[ch]; len(states) > 0 { // <4>
+		nextState := states[0]
+		if nextState.check(input, pos+1) { // <5>
+			return true
+		}
+	}
+
+	for _, state := range s.transitions[epsilonChar] { // <6>
+		if state.check(input, pos) { // <7>
+			return true
+		}
+
+		if ch == startOfText && state.check(input, pos+1) { // <8>
+			return true
+		}
+	}
+
+	return false // <9>
+}
+```
+
+1. `(s *state)` is just a way to add a function to the `state` struct in Golang, not relevant to the algorithm
+2. We get the current character we need to check for. It can be a valid character from the string, _startOfText_ or _endOfText_
+3. If we're at the end of the string and at the terminal state, that means the string matches the regex, so we return true.
+4. For the current character, we check if there's any transition specified. 
+5. If such transition exists, we grab the next state, increment the position pointer and check. If check is a success, we return true.
+	- Example: let's say `input` is `hello`. Once there's a match for `h`, the next state would try to match the string `ello`.
+6. If there's no character transition, we check for empty/epsilon transitions. 
+7. For all such transitions, we try to check the next state with the same input and position. Since it's an empty transition, there's no need for incrementing the position. If the check is a success, we return true
+8. There's a chance that we get stuck at the start of the text and never actually progress. This condition is to prevent such conditions.
+9. If nothing matches, it's a failure, and we return false. 
+
 
 ## References
 

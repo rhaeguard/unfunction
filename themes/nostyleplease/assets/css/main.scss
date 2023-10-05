@@ -1,5 +1,17 @@
 // -------------- THEME SWITCHER -------------- //
-@mixin theme($--bg-color, $--primary-text-color, $--secondary-text-color, $--link-color, $--visited-link-color) {
+@mixin theme(
+  $--bg-color, 
+  $--primary-text-color, 
+  $--secondary-text-color, 
+  $--link-color, 
+  $--visited-link-color,
+  $--gh-tool-header-color,
+  $--gh-tool-body-color,
+  $--gh-tool-text-color,
+  $--gh-tool-link-color,
+  $--inline-code-bg-color,
+  $--inline-code-text-color
+) {
   background-color: $--bg-color;
 
   color: $--primary-text-color;
@@ -13,8 +25,8 @@
   }
 
   code:not(pre > code) {
-    background-color: $--primary-text-color;
-    color: $--bg-color;
+    background-color: $--inline-code-bg-color;
+    color: $--inline-code-text-color;
   }
 
   figcaption { color: $--secondary-text-color; }
@@ -32,14 +44,55 @@
     &:visited { color: $--visited-link-color; }
     &:hover { text-decoration: underline; }
   }
+
+  .link-preview {
+    .header {
+      background-color: $--gh-tool-header-color;
+      padding: 1%;
+      color: $--gh-tool-text-color;
+      font-weight: bold;
+    }
+  
+    .body {
+      background-color: $--gh-tool-body-color;
+      padding: 1%;
+
+      a {
+        &:visited { color: $--gh-tool-link-color; }
+        &:hover { text-decoration: underline; }
+      }
+    }
+  }
 }
 
 @mixin dark-appearance {
-  @include theme(#212121, #fafafad6, #eeeeee, #0071bc, #a359e9);
+  @include theme(#212121,
+   #fafafad6,
+   #eeeeee,
+   #0071bc,
+   #a359e9,
+   #545d68,
+   #3c434d, // #8994a1,
+   white,
+   white,
+   #3c434d,
+   white
+   );
 }
 
 @mixin light-appearance {
-  @include theme(#ffffff, #212121, #666666, #1e70bf, #921292);
+  @include theme(#ffffff,
+   #212121,
+   #666666,
+   #1e70bf,
+   #921292,
+   grey,
+   lightgrey,
+   white,
+   #1e70bf,
+   #e4e6e9,
+   rgb(58, 58, 58)
+   );
 }
 
 body[a="dark"] { @include dark-appearance; }

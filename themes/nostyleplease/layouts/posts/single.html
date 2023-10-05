@@ -10,6 +10,15 @@
 
     <h1>{{ .Title }}</h1>
 
+    {{ if .Params.github }}
+        <div class="link-preview">
+            <div class="header">Github Repository</div>
+            <div class="body">
+                <a href="https://github.com/{{.Params.github}}" target="_blank">{{.Params.github}}</a>
+            </div>
+        </div>
+    {{ end }}
+
     {{ if .Params.toc }}
         <aside {{ if .Params.tocBorder }} class="toc" {{ end }}>
             {{ .TableOfContents }}
