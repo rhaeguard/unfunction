@@ -483,6 +483,173 @@ Before getting into the parsing algorithm, let&rsquo;s define some types and con
 <li>Connecting the start state with the starts of both NFAs with an epsilon transition</li>
 <li>Connecting the end states of each NFA with the end state of the Or NFA.</li>
 </ol>
+<h4 id="bracket-expression">Bracket expression</h4>
+<p><img src="/unfunction/tokenToNfa_bracket.png" alt="bracket to nfa"></p>
+<ul>
+<li>We can think of bracket expressions as a big Or expressions. For example, <code>[a-c0-2x]</code> means <code>a|b|c|0|1|2|x</code>. So it makes sense for it to visually resemble the Or expression. One minor difference is that in bracket expressions we work with literals and not arbitrary NFAs, so we can simply create a transition for each literal from the start state to the end state.</li>
+<li>The image is the visualization of the expression: <code>[a-c]</code></li>
+</ul>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">case</span> <span style="color:#a6e22e">bracket</span>:
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">literals</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">t</span>.<span style="color:#a6e22e">value</span>.(<span style="color:#66d9ef">map</span>[<span style="color:#66d9ef">uint8</span>]<span style="color:#66d9ef">bool</span>)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">l</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">literals</span> { <span style="color:#75715e">// &lt;1&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#a6e22e">start</span>.<span style="color:#a6e22e">transitions</span>[<span style="color:#a6e22e">l</span>] = []<span style="color:#f92672">*</span><span style="color:#a6e22e">state</span>{<span style="color:#a6e22e">end</span>} <span style="color:#75715e">// &lt;2&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	}
+</span></span></code></pre></div><ol>
+<li>We go through each literal in the bracket</li>
+<li>We add a transition from the <code>start</code> state to the <code>end</code> state.</li>
+</ol>
+<p>Although in our regex engine, we will not implement a negated bracket expression (<em>where the characher should be non of the specified chars</em>), this is how the Thompson construction would look like:</p>
+<p><img src="/unfunction/tokenToNfa_bracket_not.png" alt="bracket negation to nfa"></p>
+<ul>
+<li><code>*</code> represents any character</li>
+<li>This really depends on the way the engine is implemented, but one simple way could be to look for exact matches, if there&rsquo;s none, we could use the any character transition.</li>
+<li>By matching the exact characters first, we could simply send the text containing those characters into a dead end, resulting in a non-match.</li>
+</ul>
+<h4 id="groups">Groups</h4>
+<p>To convert a group expression into an NFA, we need to concatenate all the individual NFAs created from the tokens inside the group. We&rsquo;ve already seen how this is done when we covered <code>toNFA</code> function. The code is exactly the same, with different variable names:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#75715e">// there is no difference between 
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// group, groupUncaptured types in our engine
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">case</span> <span style="color:#a6e22e">group</span>, <span style="color:#a6e22e">groupUncaptured</span>:
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">tokens</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">t</span>.<span style="color:#a6e22e">value</span>.([]<span style="color:#a6e22e">token</span>)
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">start</span>, <span style="color:#a6e22e">end</span> = <span style="color:#a6e22e">tokenToNfa</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">tokens</span>[<span style="color:#ae81ff">0</span>])
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">i</span> <span style="color:#f92672">:=</span> <span style="color:#ae81ff">1</span>; <span style="color:#a6e22e">i</span> &lt; len(<span style="color:#a6e22e">tokens</span>); <span style="color:#a6e22e">i</span><span style="color:#f92672">++</span> {
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">ts</span>, <span style="color:#a6e22e">te</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">tokenToNfa</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">tokens</span>[<span style="color:#a6e22e">i</span>])
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">end</span>.<span style="color:#a6e22e">transitions</span>[<span style="color:#a6e22e">epsilonChar</span>] = append(
+</span></span><span style="display:flex;"><span>			<span style="color:#a6e22e">end</span>.<span style="color:#a6e22e">transitions</span>[<span style="color:#a6e22e">epsilonChar</span>], 
+</span></span><span style="display:flex;"><span>			<span style="color:#a6e22e">ts</span>,
+</span></span><span style="display:flex;"><span>		)
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">end</span> = <span style="color:#a6e22e">te</span>
+</span></span><span style="display:flex;"><span>	}
+</span></span></code></pre></div><h4 id="repetition">Repetition</h4>
+<p>Out of all the examples we&rsquo;ve covered, understanding repetition might be the most trickiest, thus we&rsquo;ll take it step by step and try to figure out a generalized solution that covers all repetition cases.</p>
+<p>In all the examples, we&rsquo;re about to go through, <code>A</code> will represent any NFA.</p>
+<p>Let&rsquo;s start with asterisk (Kleene&rsquo;s star), plus and question mark (optional). In each of the three examples below, we&rsquo;ve also specified the corresponding minimum and maximum occurrence requirements.</p>
+<p><img src="/unfunction/tokenToNfa_repeat_1.png" alt="repeat 1 to nfa"></p>
+<ul>
+<li>Each example has an epsilon transition from start state to the start of <code>A</code>, and from the end of <code>A</code> to the end state. This indicates repeating the NFA <code>A</code> exactly once.</li>
+<li><code>*</code>, means that <code>A</code> can be skipped or repeated any number of times:
+<ul>
+<li>For skipping <code>A</code>, we add an epsilon transition from the start state to the end state directly, bypassing <code>A</code> altogether.</li>
+<li>For repeating any number of times, we add an epsilon transition from the end state to the start of <code>A</code></li>
+</ul>
+</li>
+<li><code>+</code> means that <code>A</code> must be repeated at least once, and no upper bound is set.
+<ul>
+<li>To achieve the the minimum occurrence requirement (which is 1), we simply remove the epsilon transtion from the <code>*</code> example. Now there&rsquo;s no way to bypass <code>A</code>.</li>
+</ul>
+</li>
+<li><code>?</code> means that <code>A</code> can either be skipped or it can occur exactly once
+<ul>
+<li>This is very similar to <code>*</code> example, and we only need to remove the epsilon transition from the end state to the start of <code>A</code>.</li>
+</ul>
+</li>
+<li>Notes:
+<ol>
+<li>If minimum is 0, add an epsilon transition from start state to the end state</li>
+<li>If maximum is infinity, add an epsilon transition from the end state to the start of the <code>A</code>.</li>
+</ol>
+</li>
+</ul>
+<p>Next, let&rsquo;s take a look at the case where exact number of repetitions are specified.</p>
+<p><img src="/unfunction/tokenToNfa_repeat_2.png" alt="repeat 2 to nfa"></p>
+<ul>
+<li>We simply concatenate the same NFA <code>A</code> <em>m</em> times.</li>
+</ul>
+<p>What if the minimum is specified, but the upper bound is the infinity?</p>
+<p><img src="/unfunction/tokenToNfa_repeat_3.png" alt="repeat 3 to nfa"></p>
+<ul>
+<li>We still concatenate the same NFA <code>A</code> <em>m</em> times because that&rsquo;s the minimum amount of times it needs to repeat.</li>
+<li>But we also add an epsilon transition from the end state to the start of the final instance of <code>A</code> (<em>remember the second note from above</em>)</li>
+</ul>
+<p>Now, onto the final case. Both minimum and maximum number of occurrences are specified, and maximum is not infinity.</p>
+<p><img src="/unfunction/tokenToNfa_repeat_4.png" alt="repeat 4 to nfa"></p>
+<ul>
+<li>We know that <code>A</code> needs to repeat <em>m</em> times. This means that we have to concatenate <code>A</code> <em>m</em> times.</li>
+<li>The remaining <em>(n-m)</em> repetitions are completely optional. So at any point, after matching the minimum number of repetitions, we should be able to go to the end state.</li>
+<li>To achieve the early termination, all we need to do is to add an epsilon transition from the start state of each <code>A</code> instance to the end state.</li>
+</ul>
+<p>Let&rsquo;s now see how this is actually coded:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">case</span> <span style="color:#a6e22e">repeat</span>:
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">p</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">t</span>.<span style="color:#a6e22e">value</span>.(<span style="color:#a6e22e">repeatPayload</span>)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">min</span> <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span> { <span style="color:#75715e">// &lt;1&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#a6e22e">start</span>.<span style="color:#a6e22e">transitions</span>[<span style="color:#a6e22e">epsilonChar</span>] = []<span style="color:#f92672">*</span><span style="color:#a6e22e">state</span>{<span style="color:#a6e22e">end</span>}
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">var</span> <span style="color:#a6e22e">copyCount</span> <span style="color:#66d9ef">int</span> <span style="color:#75715e">// &lt;2&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">max</span> <span style="color:#f92672">==</span> <span style="color:#a6e22e">repeatInfinity</span> {
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">min</span> <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span> {
+</span></span><span style="display:flex;"><span>			<span style="color:#a6e22e">copyCount</span> = <span style="color:#ae81ff">1</span>
+</span></span><span style="display:flex;"><span>		} <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>			<span style="color:#a6e22e">copyCount</span> = <span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">min</span>
+</span></span><span style="display:flex;"><span>		}
+</span></span><span style="display:flex;"><span>	} <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">copyCount</span> = <span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">max</span>
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">from</span>, <span style="color:#a6e22e">to</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">tokenToNfa</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">token</span>) <span style="color:#75715e">// &lt;3&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#a6e22e">start</span>.<span style="color:#a6e22e">transitions</span>[<span style="color:#a6e22e">epsilonChar</span>] = append( <span style="color:#75715e">// &lt;4&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#a6e22e">start</span>.<span style="color:#a6e22e">transitions</span>[<span style="color:#a6e22e">epsilonChar</span>], 
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">from</span>,
+</span></span><span style="display:flex;"><span>	) 
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">i</span> <span style="color:#f92672">:=</span> <span style="color:#ae81ff">2</span>; <span style="color:#a6e22e">i</span> <span style="color:#f92672">&lt;=</span> <span style="color:#a6e22e">copyCount</span>; <span style="color:#a6e22e">i</span><span style="color:#f92672">++</span> { <span style="color:#75715e">// &lt;5&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#a6e22e">s</span>, <span style="color:#a6e22e">e</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">tokenToNfa</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">token</span>)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>		<span style="color:#75715e">// connect the end of the previous one 
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#75715e">// to the start of this one
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#a6e22e">to</span>.<span style="color:#a6e22e">transitions</span>[<span style="color:#a6e22e">epsilonChar</span>] = append( <span style="color:#75715e">// &lt;6&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>			<span style="color:#a6e22e">to</span>.<span style="color:#a6e22e">transitions</span>[<span style="color:#a6e22e">epsilonChar</span>], 
+</span></span><span style="display:flex;"><span>			<span style="color:#a6e22e">s</span>,
+</span></span><span style="display:flex;"><span>		) 
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>		<span style="color:#75715e">// keep track of the previous NFA&#39;s entry and exit states
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#a6e22e">from</span> = <span style="color:#a6e22e">s</span> <span style="color:#75715e">// &lt;7&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#a6e22e">to</span> = <span style="color:#a6e22e">e</span>   <span style="color:#75715e">// &lt;7&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span>		<span style="color:#75715e">// after the minimum required amount of repetitions
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#75715e">// the rest must be optional, thus we add an 
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#75715e">// epsilon transition to the start of each NFA 
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#75715e">// so that we can skip them if needed
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">i</span> &gt; <span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">min</span> { <span style="color:#75715e">// &lt;8&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>			<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">transitions</span>[<span style="color:#a6e22e">epsilonChar</span>] = append(
+</span></span><span style="display:flex;"><span>				<span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">transitions</span>[<span style="color:#a6e22e">epsilonChar</span>], 
+</span></span><span style="display:flex;"><span>				<span style="color:#a6e22e">end</span>,
+</span></span><span style="display:flex;"><span>			)
+</span></span><span style="display:flex;"><span>		}
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">to</span>.<span style="color:#a6e22e">transitions</span>[<span style="color:#a6e22e">epsilonChar</span>] = append( <span style="color:#75715e">// &lt;9&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#a6e22e">to</span>.<span style="color:#a6e22e">transitions</span>[<span style="color:#a6e22e">epsilonChar</span>], 
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">end</span>,
+</span></span><span style="display:flex;"><span>	) 
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">p</span>.<span style="color:#a6e22e">max</span> <span style="color:#f92672">==</span> <span style="color:#a6e22e">repeatInfinity</span> { <span style="color:#75715e">// &lt;10&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#a6e22e">end</span>.<span style="color:#a6e22e">transitions</span>[<span style="color:#a6e22e">epsilonChar</span>] = append(
+</span></span><span style="display:flex;"><span>			<span style="color:#a6e22e">end</span>.<span style="color:#a6e22e">transitions</span>[<span style="color:#a6e22e">epsilonChar</span>], 
+</span></span><span style="display:flex;"><span>			<span style="color:#a6e22e">from</span>,
+</span></span><span style="display:flex;"><span>		)
+</span></span><span style="display:flex;"><span>	}
+</span></span></code></pre></div><ol>
+<li>From our notes earlier, we know that if minimum is 0, we need to have an epsilon transition from the start state to the end state</li>
+<li><code>copyCount</code> is the maximum number of times we need to create an NFA from <code>p.token</code>.
+<ul>
+<li>if the max is infinity and min is 0, it is 1 because we need to create at least one copy</li>
+<li>if the max is infinity and min is non-zero, it is the min value because, we need to repeat it at least <code>p.min</code> times.</li>
+<li>if the max is non-infinity, <code>copyCount</code> is whatever the max is.</li>
+</ul>
+</li>
+<li>Just like we did in the group type, we need to concatenate multiple NFAs, so we start by creating the first copy of this NFA.</li>
+<li>The start state is connected to the start of this new NFA.</li>
+<li>We iterate the remaining amount of times</li>
+<li>Actual concatenation step where we connect the end of the previous NFA to the start of the current NFA.</li>
+<li>Save the start and end of the current NFA.</li>
+<li>Once we have created the minimum required number of NFAs, the rest must be optional. Thus, we add an epsilon transition from the start of each of those new optional NFAs to the end state.</li>
+<li>Connect the end of the last NFA, to the end state.</li>
+<li>If the upper bound is infinity, add an epsilon transition from the end state to the start of the last NFA.</li>
+</ol>
 <h2 id="matching">Matching</h2>
 <h2 id="references">References</h2>
 <ul>
