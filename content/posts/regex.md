@@ -494,6 +494,177 @@ case or:
 2. Connecting the start state with the starts of both NFAs with an epsilon transition
 3. Connecting the end states of each NFA with the end state of the Or NFA.
 
+#### Bracket expression
+
+![bracket to nfa](/unfunction/tokenToNfa_bracket.png)
+
+- We can think of bracket expressions as a big Or expressions. For example, `[a-c0-2x]` means `a|b|c|0|1|2|x`. So it makes sense for it to visually resemble the Or expression. One minor difference is that in bracket expressions we work with literals and not arbitrary NFAs, so we can simply create a transition for each literal from the start state to the end state. 
+- The image is the visualization of the expression: `[a-c]`
+
+```go
+case bracket:
+	literals := t.value.(map[uint8]bool)
+
+	for l := range literals { // <1>
+		start.transitions[l] = []*state{end} // <2>
+	}
+```
+
+1. We go through each literal in the bracket
+2. We add a transition from the `start` state to the `end` state.
+
+Although in our regex engine, we will not implement a negated bracket expression (_where the characher should be non of the specified chars_), this is how the Thompson construction would look like: 
+
+![bracket negation to nfa](/unfunction/tokenToNfa_bracket_not.png)
+
+- `*` represents any character
+- This really depends on the way the engine is implemented, but one simple way could be to look for exact matches, if there's none, we could use the any character transition.
+- By matching the exact characters first, we could simply send the text containing those characters into a dead end, resulting in a non-match.
+
+#### Groups
+
+To convert a group expression into an NFA, we need to concatenate all the individual NFAs created from the tokens inside the group. We've already seen how this is done when we covered `toNFA` function. The code is exactly the same, with different variable names: 
+
+```go
+// there is no difference between 
+// group, groupUncaptured types in our engine
+case group, groupUncaptured:
+	tokens := t.value.([]token)
+	start, end = tokenToNfa(&tokens[0])
+	for i := 1; i < len(tokens); i++ {
+		ts, te := tokenToNfa(&tokens[i])
+		end.transitions[epsilonChar] = append(
+			end.transitions[epsilonChar], 
+			ts,
+		)
+		end = te
+	}
+```
+
+#### Repetition
+
+Out of all the examples we've covered, understanding repetition might be the most trickiest, thus we'll take it step by step and try to figure out a generalized solution that covers all repetition cases.
+
+In all the examples, we're about to go through, `A` will represent any NFA.
+
+Let's start with asterisk (Kleene's star), plus and question mark (optional). In each of the three examples below, we've also specified the corresponding minimum and maximum occurrence requirements.
+
+![repeat 1 to nfa](/unfunction/tokenToNfa_repeat_1.png)
+
+- Each example has an epsilon transition from start state to the start of `A`, and from the end of `A` to the end state. This indicates repeating the NFA `A` exactly once.
+- `*`, means that `A` can be skipped or repeated any number of times:
+	- For skipping `A`, we add an epsilon transition from the start state to the end state directly, bypassing `A` altogether.
+	- For repeating any number of times, we add an epsilon transition from the end state to the start of `A`
+- `+` means that `A` must be repeated at least once, and no upper bound is set.
+	- To achieve the the minimum occurrence requirement (which is 1), we simply remove the epsilon transtion from the `*` example. Now there's no way to bypass `A`.
+- `?` means that `A` can either be skipped or it can occur exactly once
+	- This is very similar to `*` example, and we only need to remove the epsilon transition from the end state to the start of `A`.
+- Notes:
+	1. If minimum is 0, add an epsilon transition from start state to the end state
+	2. If maximum is infinity, add an epsilon transition from the end state to the start of the `A`.
+
+Next, let's take a look at the case where exact number of repetitions are specified.
+
+![repeat 2 to nfa](/unfunction/tokenToNfa_repeat_2.png)
+
+- We simply concatenate the same NFA `A` _m_ times.
+
+What if the minimum is specified, but the upper bound is the infinity?
+
+![repeat 3 to nfa](/unfunction/tokenToNfa_repeat_3.png)
+
+- We still concatenate the same NFA `A` _m_ times because that's the minimum amount of times it needs to repeat. 
+- But we also add an epsilon transition from the end state to the start of the final instance of `A` (_remember the second note from above_)
+
+Now, onto the final case. Both minimum and maximum number of occurrences are specified, and maximum is not infinity.
+
+![repeat 4 to nfa](/unfunction/tokenToNfa_repeat_4.png)
+
+- We know that `A` needs to repeat _m_ times. This means that we have to concatenate `A` _m_ times. 
+- The remaining _(n-m)_ repetitions are completely optional. So at any point, after matching the minimum number of repetitions, we should be able to go to the end state.
+- To achieve the early termination, all we need to do is to add an epsilon transition from the start state of each `A` instance to the end state.
+
+Let's now see how this is actually coded:
+
+```go
+case repeat:
+	p := t.value.(repeatPayload)
+
+	if p.min == 0 { // <1>
+		start.transitions[epsilonChar] = []*state{end}
+	}
+
+	var copyCount int // <2>
+
+	if p.max == repeatInfinity {
+		if p.min == 0 {
+			copyCount = 1
+		} else {
+			copyCount = p.min
+		}
+	} else {
+		copyCount = p.max
+	}
+
+	from, to := tokenToNfa(&p.token) // <3>
+	start.transitions[epsilonChar] = append( // <4>
+		start.transitions[epsilonChar], 
+		from,
+	) 
+
+	for i := 2; i <= copyCount; i++ { // <5>
+		s, e := tokenToNfa(&p.token)
+
+		// connect the end of the previous one 
+		// to the start of this one
+		to.transitions[epsilonChar] = append( // <6>
+			to.transitions[epsilonChar], 
+			s,
+		) 
+
+		// keep track of the previous NFA's entry and exit states
+		from = s // <7>
+		to = e   // <7>
+
+		// after the minimum required amount of repetitions
+		// the rest must be optional, thus we add an 
+		// epsilon transition to the start of each NFA 
+		// so that we can skip them if needed
+		if i > p.min { // <8>
+			s.transitions[epsilonChar] = append(
+				s.transitions[epsilonChar], 
+				end,
+			)
+		}
+	}
+
+	to.transitions[epsilonChar] = append( // <9>
+		to.transitions[epsilonChar], 
+		end,
+	) 
+
+	if p.max == repeatInfinity { // <10>
+		end.transitions[epsilonChar] = append(
+			end.transitions[epsilonChar], 
+			from,
+		)
+	}
+```
+
+1. From our notes earlier, we know that if minimum is 0, we need to have an epsilon transition from the start state to the end state
+2. `copyCount` is the maximum number of times we need to create an NFA from `p.token`.
+	- if the max is infinity and min is 0, it is 1 because we need to create at least one copy
+	- if the max is infinity and min is non-zero, it is the min value because, we need to repeat it at least `p.min` times.
+	- if the max is non-infinity, `copyCount` is whatever the max is.
+3.  Just like we did in the group type, we need to concatenate multiple NFAs, so we start by creating the first copy of this NFA.
+4. The start state is connected to the start of this new NFA.
+5. We iterate the remaining amount of times
+6. Actual concatenation step where we connect the end of the previous NFA to the start of the current NFA.
+7. Save the start and end of the current NFA.
+8. Once we have created the minimum required number of NFAs, the rest must be optional. Thus, we add an epsilon transition from the start of each of those new optional NFAs to the end state.
+9. Connect the end of the last NFA, to the end state.
+10. If the upper bound is infinity, add an epsilon transition from the end state to the start of the last NFA.
+
 ## Matching
 
 ## References
