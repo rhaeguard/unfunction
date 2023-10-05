@@ -58,6 +58,9 @@
       padding: 1%;
 
       a {
+        color: $--gh-tool-link-color;
+        text-decoration: none;
+
         &:visited { color: $--gh-tool-link-color; }
         &:hover { text-decoration: underline; }
       }
@@ -72,7 +75,7 @@
    #0071bc,
    #a359e9,
    #545d68,
-   #3c434d, // #8994a1,
+   #3c434d, 
    white,
    white,
    #3c434d,
