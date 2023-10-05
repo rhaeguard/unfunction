@@ -10,7 +10,7 @@
     <item>
       <title>[WIP] How to build a regex engine from scratch</title>
       <link>https://rhaeguard.github.io/unfunction/posts/regex/</link>
-      <pubDate>Thu, 28 Sep 2023 22:40:33 -0600</pubDate>
+      <pubDate>Wed, 04 Oct 2023 22:40:33 -0600</pubDate>
       
       <guid>https://rhaeguard.github.io/unfunction/posts/regex/</guid>
       <description>In this article, we&amp;rsquo;ll build a simple regular expression engine that will be able to use [a-zA-Z0–9_]+@[a-zA-Z0–9]+.[a-zA-Z]{2,} pattern to check for the validity of email addresses. We will use Golang. The article is divided into 3 sections:

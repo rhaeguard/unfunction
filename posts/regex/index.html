@@ -18,7 +18,7 @@ Parsing Building the epsilon-NFA Matching Parsing On its own, a regex string is 
   
   
   
-  <link rel="stylesheet" href="/unfunction/css/main.f258e387d11b0cbe3f30b888037616e7cceab80a2aa00830820dff82be83d2f39508afca0e411c8827565d13425f067c8477550586cd27cf07c72a24d395e08b.css" integrity="sha512-8ljjh9EbDL4/MLiIA3YW58zquAoqoAgwgg3/gr6D0vOVCK/KDkEciCdWXRNCXwZ8hHdVBYbNJ88Hxyok05Xgiw==" />
+  <link rel="stylesheet" href="/unfunction/css/main.0f36aa01d84b7179ffb5825893774ff4152ad97168d1a64e7630a596ba33232f003ed52d319101f719e6f88ac7cf38b3ab80e31399aced0ff6bf37d81454c0f2.css" integrity="sha512-DzaqAdhLcXn/tYJYk3dP9BUq2XFo0aZOdjCllrozIy8APtUtMZEB9xnm&#43;IrHzzizq4DjE5ms7Q/2vzfYFFTA8g==" />
   
 </head>
 <body a="light">
@@ -30,12 +30,21 @@ Parsing Building the epsilon-NFA Matching Parsing On its own, a regex string is 
 
 <article>
     <p class="post-meta">
-        <time datetime="2023-09-28 22:40:33 -0600 -0600">
-            2023-09-28
+        <time datetime="2023-10-04 22:40:33 -0600 -0600">
+            2023-10-04
         </time>
     </p>
 
     <h1>[WIP] How to build a regex engine from scratch</h1>
+
+    
+        <div class="link-preview">
+            <div class="header">Github Repository</div>
+            <div class="body">
+                <a href="https://github.com/rhaeguard/rgx" target="_blank">rhaeguard/rgx</a>
+            </div>
+        </div>
+    
 
     
 
@@ -650,7 +659,72 @@ Before getting into the parsing algorithm, let&rsquo;s define some types and con
 <li>Connect the end of the last NFA, to the end state.</li>
 <li>If the upper bound is infinity, add an epsilon transition from the end state to the start of the last NFA.</li>
 </ol>
+<h4 id="example">Example</h4>
+<p>Considering all the techniques we discussed above, this is what we would generate this regex: <code>19[5-9][0-9]</code>:</p>
+<p><img src="/unfunction/example_nfa_complete.png" alt="complete example"></p>
 <h2 id="matching">Matching</h2>
+<p>Final piece of our regex engine is the matching logic. The basic idea is that we&rsquo;ll feed each character of the test string, in order, to our current NFA state until we reach to the end of the string. If we finish the entire string and we&rsquo;re at the terminal state, it means the string matches with the regex.</p>
+<p>While going through the string, we&rsquo;ll use a cursor/pointer to a certain position in the string. The image below visualizes this. Keep in mind that, in addition to each index in the string, our pointer can also reference to the beginning of the string (prior to matching) and the end of the string (once we exhaust all the characters).</p>
+<p><img src="/unfunction/string_with_positions.png" alt="cursur positions"></p>
+<p>In code, we&rsquo;ll have these helper constants and method.</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">const</span> (
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">startOfText</span> <span style="color:#66d9ef">uint8</span> = <span style="color:#ae81ff">1</span>
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">endOfText</span>   <span style="color:#66d9ef">uint8</span> = <span style="color:#ae81ff">2</span>
+</span></span><span style="display:flex;"><span>)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">getChar</span>(<span style="color:#a6e22e">input</span> <span style="color:#66d9ef">string</span>, <span style="color:#a6e22e">pos</span> <span style="color:#66d9ef">int</span>) <span style="color:#66d9ef">uint8</span> {
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">pos</span> <span style="color:#f92672">&gt;=</span> len(<span style="color:#a6e22e">input</span>) {
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">endOfText</span>
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">pos</span> &lt; <span style="color:#ae81ff">0</span> {
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">startOfText</span>
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">input</span>[<span style="color:#a6e22e">pos</span>]
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>Now onto the code for matching:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">func</span> (<span style="color:#a6e22e">s</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">state</span>) <span style="color:#a6e22e">check</span>(<span style="color:#a6e22e">input</span> <span style="color:#66d9ef">string</span>, <span style="color:#a6e22e">pos</span> <span style="color:#66d9ef">int</span>) <span style="color:#66d9ef">bool</span> { <span style="color:#75715e">// &lt;1&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#a6e22e">ch</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">getChar</span>(<span style="color:#a6e22e">input</span>, <span style="color:#a6e22e">pos</span>) <span style="color:#75715e">// &lt;2&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">ch</span> <span style="color:#f92672">==</span> <span style="color:#a6e22e">endOfText</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">terminal</span> { <span style="color:#75715e">// &lt;3&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">true</span>
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">states</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">transitions</span>[<span style="color:#a6e22e">ch</span>]; len(<span style="color:#a6e22e">states</span>) &gt; <span style="color:#ae81ff">0</span> { <span style="color:#75715e">// &lt;4&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#a6e22e">nextState</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">states</span>[<span style="color:#ae81ff">0</span>]
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">nextState</span>.<span style="color:#a6e22e">check</span>(<span style="color:#a6e22e">input</span>, <span style="color:#a6e22e">pos</span><span style="color:#f92672">+</span><span style="color:#ae81ff">1</span>) { <span style="color:#75715e">// &lt;5&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>			<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">true</span>
+</span></span><span style="display:flex;"><span>		}
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">_</span>, <span style="color:#a6e22e">state</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">s</span>.<span style="color:#a6e22e">transitions</span>[<span style="color:#a6e22e">epsilonChar</span>] { <span style="color:#75715e">// &lt;6&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">state</span>.<span style="color:#a6e22e">check</span>(<span style="color:#a6e22e">input</span>, <span style="color:#a6e22e">pos</span>) { <span style="color:#75715e">// &lt;7&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>			<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">true</span>
+</span></span><span style="display:flex;"><span>		}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">ch</span> <span style="color:#f92672">==</span> <span style="color:#a6e22e">startOfText</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">state</span>.<span style="color:#a6e22e">check</span>(<span style="color:#a6e22e">input</span>, <span style="color:#a6e22e">pos</span><span style="color:#f92672">+</span><span style="color:#ae81ff">1</span>) { <span style="color:#75715e">// &lt;8&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>			<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">true</span>
+</span></span><span style="display:flex;"><span>		}
+</span></span><span style="display:flex;"><span>	}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> <span style="color:#66d9ef">false</span> <span style="color:#75715e">// &lt;9&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>}
+</span></span></code></pre></div><ol>
+<li><code>(s *state)</code> is just a way to add a function to the <code>state</code> struct in Golang, not relevant to the algorithm</li>
+<li>We get the current character we need to check for. It can be a valid character from the string, <em>startOfText</em> or <em>endOfText</em></li>
+<li>If we&rsquo;re at the end of the string and at the terminal state, that means the string matches the regex, so we return true.</li>
+<li>For the current character, we check if there&rsquo;s any transition specified.</li>
+<li>If such transition exists, we grab the next state, increment the position pointer and check. If check is a success, we return true.
+<ul>
+<li>Example: let&rsquo;s say <code>input</code> is <code>hello</code>. Once there&rsquo;s a match for <code>h</code>, the next state would try to match the string <code>ello</code>.</li>
+</ul>
+</li>
+<li>If there&rsquo;s no character transition, we check for empty/epsilon transitions.</li>
+<li>For all such transitions, we try to check the next state with the same input and position. Since it&rsquo;s an empty transition, there&rsquo;s no need for incrementing the position. If the check is a success, we return true</li>
+<li>There&rsquo;s a chance that we get stuck at the start of the text and never actually progress. This condition is to prevent such conditions.</li>
+<li>If nothing matches, it&rsquo;s a failure, and we return false.</li>
+</ol>
 <h2 id="references">References</h2>
 <ul>
 <li><a href="https://en.wikipedia.org/wiki/Thompson%27s_construction">https://en.wikipedia.org/wiki/Thompson%27s_construction</a></li>
