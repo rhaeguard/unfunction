@@ -1,24 +1,24 @@
 +++
-title = '[WIP] How to build a regex engine from scratch'
-date = 2023-10-04T22:40:33-06:00
+title = 'How to build a regex engine from scratch'
+date = 2023-10-05T22:40:33-06:00
 draft = false
 github = 'rhaeguard/rgx'
 +++
 
-In this article, we'll build a simple regular expression engine that will be able to use `[a-zA-Z0–9_]+@[a-zA-Z0–9]+.[a-zA-Z]{2,}` pattern to check for the validity of email addresses. We will use Golang. The article is divided into 3 sections:
+In this article, we'll build a simple regular expression engine that will be able to use `[a-zA-Z0–9_]+@[a-zA-Z0–9]+.[a-zA-Z]{2,}` pattern (_`.` is used as literal instead of any character_) to check for the validity of email addresses. We will use Golang. The article is divided into 3 sections:
 
 - [Parsing](#parsing)
 - [Building the epsilon-NFA](#building-the-epsilon-nfa)
 - [Matching](#matching)
 
 ## Parsing
-On its own, a regex string is just that - a string. We need to convert that input into something has a structure. For instance:
+On its own, a regex string is just that --- a string. We need to transform it into something has a structure. Such as the following:
 
-```python
-# original regex string
-[a-zA-Z0–9_]+@[a-zA-Z0–9]+.[a-zA-Z]{2,}
+```go
+// original regex string
+"[a-zA-Z0–9_]+@[a-zA-Z0–9]+.[a-zA-Z]{2,}"
 
-# regex tokens
+// regex tokens
 Repeat(1, infinity):
    Range(a, b,...z, A, B,...,Z, 0,...,9,_)
 Literal(@)
@@ -31,7 +31,7 @@ Repeat(2, infinity):
 
 
 In this section, we'll go over the process of parsing a regex string into tokens. 
-The core idea when it comes to parsing regex is simple, we will look for the characters that have special meanings such as `* + ? () [] {}` etc. and will try to create tokens out of those. It'll be more clear once we start writing some code.
+The core idea when it comes to parsing a regex string is simple, we will look for the characters that have special meanings such as `* + ? () [] {}` etc. and will try to create tokens out of those. It'll be more clear once we start writing some code.
 Before getting into the parsing algorithm, let's define some types and constants.
 
 ```go
@@ -61,9 +61,9 @@ type parseContext struct { // <4>
 }
 ```
 
-1. it's just a type alias for the character type
-2. constants for specifying the type of the token we are working with
-3. the main token struct, it has a _type_ and a _value_ which can be anything depending on the given type
+1. It's just a type alias for the character type
+2. Constants for specifying the type of the token we are working with
+3. The main token struct, it has a _type_ and a _value_ which can be anything depending on the given type
 4. `parseContext` will help us keep track of our positions and will hold the tokens parsed so far
 
 Now, next is our parsing algorithm:
@@ -83,7 +83,9 @@ func parse(regex string) *parseContext {
 }
 ```
 
-The basic idea is that we loop through each character and process it until we reach to the end of the regex string. Next, let's take a look at the `process` method. It's a bit more involved, so let's take it step by step.
+- We loop through each character and process it until we reach to the end of the regex string. 
+
+Next, let's take a look at the `process` method. It's a bit more involved, so let's take it step by step.
 
 ```go
 func process(regex string, ctx *parseContext) {
@@ -119,15 +121,15 @@ func process(regex string, ctx *parseContext) {
 ```
 As we mentioned earlier, we try to match the characters we recognize and use them to parse tokens.
 
-1. if the current character is `(` - the opening parenthesis, we know that it needs to be a regex group, thus we try to parse the next couple of characters expecting a string of characters that corresponds to a regex group.
-2. if it's `[` - the opening bracket, we know that it's a bracket expression, so we proceed accordingly
-3. if the character is a vertical pipe - `|`, that's an Or expression (alternative). 
-4. the characters `*`, `+` and `?` all represent repetition. I know that `?` means optional, but in terms of repetition, it simply means that the character repeats at most once.
-5. curly braces specify repetition as well. In fact, the previous repetition options can all be specified using braces:
+1. If the current character is `(`, the opening parenthesis, we know we're dealing with a group, thus we try to parse the next couple of characters as a group.
+2. If it's `[`, the opening bracket, we know that it's a bracket expression, so we proceed accordingly
+3. If the character is a vertical pipe - `|`, that's an Or expression (alternative). 
+4. The characters `*`, `+` and `?` all represent repetition. I know that `?` means optional, but in terms of repetition, it simply means that the character repeats at most once.
+5. Curly braces specify repetition as well. In fact, the previous repetition options can all be specified using braces:
    - `a* == a{0,}`
    - `a+ == a{1,}`
    - `a? == a{0,1}`
-6. if the character did not match with anything, we consider it as a literal. Please keep in mind that this is a simplified implementation. There are a lot of cases to consider when it comes to parsing regular expressions; for instance, 1 is a literal, but depending on the context it can actually be a part of a backreference `\1` that refers to the first captured group. Our simplified algorithm also DOES NOT consider the escape characters (which means `\a` is considered as a concatenation of two literals: `\` and `a`).
+6. If the character did not match with anything, we consider it as a literal. Please keep in mind that this is a simplified implementation. There are a lot of cases to consider when it comes to parsing regular expressions; for instance, 1 is a literal, but depending on the context it can actually be a part of a backreference `\1` that refers to the first captured group. Our simplified algorithm also DOES NOT consider the escape characters (which means `\a` is considered as a concatenation of two literals: `\` and `a`).
 
 Next, we'll examine each of the functions defined in the above snippet. Let's start with the parsing of group expressions **_(1)_**:
 
@@ -141,7 +143,9 @@ func parseGroup(regex string, ctx *parseContext) {
 }
 ```
 
-We process each character like we did in the parse method until we encounter the closing parenthesis. We will not cover the error handling in this tutorial, so we're simply not checking if the index is still within bounds. It will panic anyway. But what about the extra code around `parseGroup` in the `process` function? What happens there? Here's the snippet:
+- We process each character like we did in the `parse` method until we encounter the closing parenthesis. We will not cover the error handling in this tutorial, so we're simply not checking if the index is still within bounds. It will panic anyway. 
+
+What about the extra code around `parseGroup` in the `process` function? What happens there? Here's the snippet:
 
 ```go
 // snippet from the `process` function
@@ -159,7 +163,7 @@ ctx.tokens = append(ctx.tokens, token{
 })
 ```
 
-We create a new context specific to each group, so that we'll be able to bundle together all the tokens within a specific group without dealing with the top level context object. 
+- We create a new context specific to each group, so that we'll be able to bundle together all the tokens within a specific group without dealing with the top level context object. 
 
 Let's now see how we can parse bracket expressions **_(2)_**. This is the whole function, but we'll cover it step by step.
 
@@ -764,6 +768,84 @@ func (s *state) check(input string, pos int) bool { // <1>
 8. There's a chance that we get stuck at the start of the text and never actually progress. This condition is to prevent such conditions.
 9. If nothing matches, it's a failure, and we return false. 
 
+### Testing
+
+Finally, let's test our code against some input.
+
+```go
+func TestNfa(t *testing.T) {
+
+	var data = []struct {
+		email    string
+		validity bool
+	}{
+		{email: "valid_email@example.com", validity: true},
+		{email: "john.doe@email.com", validity: true},
+		{email: "user_name@email.org", validity: true},
+		{email: "support@email.io", validity: true},
+		{email: "contact@123.com", validity: true},
+		{email: "sales@email.biz", validity: true},
+		{email: "test_email@email.test", validity: true},
+		{email: "random.email@email.xyz", validity: true},
+		{email: "user@domain12345.com", validity: true},
+		{email: "user@12345domain.com", validity: true},
+		// invalid when compared against our regex
+		{email: "alice.smith123@email.co.uk", validity: false},
+		{email: "invalid.email@", validity: false},
+		{email: ".invalid@email.com", validity: false},
+		{email: "email@invalid..com", validity: false},
+		{email: "user@-invalid.com", validity: false},
+		{email: "user@invalid-.com", validity: false},
+		{email: "user@in valid.com", validity: false},
+		{email: "user@.com", validity: false},
+		{email: "user@.co", validity: false},
+		{email: "user@domain.c", validity: false},
+		{email: "user@domain.1a", validity: false},
+		{email: "user@domain.c0m", validity: false},
+		{email: "user@domain..com", validity: false},
+		{email: "user@.email.com", validity: false},
+		{email: "user@emai.l.com", validity: false},
+		{email: "user@e_mail.com", validity: false},
+		{email: "user@e+mail.com", validity: false},
+		{email: "user@e^mail.com", validity: false},
+		{email: "user@e*mail.com", validity: false},
+		{email: "user@e.mail.com", validity: false},
+		{email: "user@e_mail.net", validity: false},
+		{email: "user@sub.domain.com", validity: false},
+		{email: "user@sub-domain.com", validity: false},
+		{email: "user@sub.domain12345.com", validity: false},
+		{email: "user@sub.domain-12345.com", validity: false},
+		{email: "user@-sub.domain.com", validity: false},
+		{email: "user@sub-.domain.com", validity: false},
+		{email: "user@domain-.com", validity: false},
+		{email: "user@sub.domain.c0m", validity: false},
+		{email: "user@sub.domain.c", validity: false},
+		{email: "user@sub.domain.1a", validity: false},
+		{email: "user@sub.domain.c0m", validity: false},
+		{email: "user@sub.domain..com", validity: false},
+		{email: "user@sub.domain.c0m", validity: false},
+		{email: "user@sub.domain..com", validity: false},
+		{email: "user@sub.domain.c0m", validity: false},
+	}
+
+	ctx := parse(`[a-zA-Z][a-zA-Z0-9_.]+@[a-zA-Z0-9]+.[a-zA-Z]{2,}`)
+	nfa := toNfa(ctx)
+
+	for _, instance := range data {
+		t.Run(fmt.Sprintf("Test: '%s'", instance.email), func(t *testing.T) {
+			result := nfa.check(instance.email, -1)
+			if result != instance.validity {
+				t.Logf("Expected: %t, got: %t\n", instance.validity, result)
+				t.Fail()
+			}
+		})
+	}
+}
+```
+
+All the tests pass. We're done.
+
+Of course, there's a lot to improve in the code. You can check out the Github repository for this project. While the code will not be the exact same, the ideas are the same.
 
 ## References
 
