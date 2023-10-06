@@ -350,7 +350,28 @@ With this, we conclude the steps required for parsing a regex string. Next, we'l
 
 ### What's an NFA?
 
-WIP
+A finite state machine (FSM) or a finite automata (FA) is an abstract machine that consists of a finite set of states, an initial state, terminal states and transitions between those states. FA has 2 types: _deterministic finite automata_ (DFA) and _non-deterministic finite automata_ (NFA). 
+
+While automatas are used in many things, what's relevant to our context is that the way they are used for checking if a certain text is accepted. Below is an example to a _deterministic_ finite automata. It will only accept the words _"abd"_ and _"ace"_.
+
+![DFA example](/unfunction/dfa_example.png)
+
+The way this acceptance check is performed is as follows:
+1. We're at the start state.
+2. We take the first character of the input string and see if there's a corresponding transition for that.
+	- if yes, we transition to that state and continue with the next char
+	- if no, the string is not accepte
+3. We repeat step 2 with the next set of characters until we finish the string and we check if we're at the end/terminal state. 
+4. Being on the terminal state means that the string is accepted
+5. For the DFA above, _"abd"_ will always end on the terminal state, while _"abc"_ will get stuck before reaching the end state.
+
+In DFAs, given a state, with the same input you will always transition to the same target state. It's deterministic. 
+
+![eNFA example](/unfunction/nfa_example.png)
+
+In NFAs, given a state, with the same input you can go to different states, thus this makes it non-deterministic. `epsilon` represents an empty input. The NFA example above also only accepts the strings: _"abd"_ and _"ace"_.
+
+In the next sections, we will take our list of parsed tokens and create an epsilon-NFA out of them. Once we have the NFA, all we will need to do would be to go through each state and try to consume one character from the input string at a time and see if we end up in the end state.
 
 ### Regular expression to epsilon-NFA
 
@@ -514,7 +535,7 @@ case bracket:
 1. We go through each literal in the bracket
 2. We add a transition from the `start` state to the `end` state.
 
-Although in our regex engine, we will not implement a negated bracket expression (_where the characher should be non of the specified chars_), this is how the Thompson construction would look like: 
+Although in our regex engine, we will not implement a negated bracket expression (_where the characher should be none of the specified chars_), this is how the Thompson construction would look like: 
 
 ![bracket negation to nfa](/unfunction/tokenToNfa_bracket_not.png)
 
