@@ -8,14 +8,13 @@
     <language>en-us</language>
     <lastBuildDate>Thu, 25 Aug 2022 21:30:04 +0800</lastBuildDate><atom:link href="https://rhaeguard.github.io/unfunction/index.xml" rel="self" type="application/rss+xml" />
     <item>
-      <title>[WIP] How to build a regex engine from scratch</title>
+      <title>How to build a regex engine from scratch</title>
       <link>https://rhaeguard.github.io/unfunction/posts/regex/</link>
-      <pubDate>Wed, 04 Oct 2023 22:40:33 -0600</pubDate>
+      <pubDate>Thu, 05 Oct 2023 22:40:33 -0600</pubDate>
       
       <guid>https://rhaeguard.github.io/unfunction/posts/regex/</guid>
-      <description>In this article, we&amp;rsquo;ll build a simple regular expression engine that will be able to use [a-zA-Z0–9_]+@[a-zA-Z0–9]+.[a-zA-Z]{2,} pattern to check for the validity of email addresses. We will use Golang. The article is divided into 3 sections:
-Parsing Building the epsilon-NFA Matching Parsing On its own, a regex string is just that - a string. We need to convert that input into something has a structure. For instance:
-# original regex string [a-zA-Z0–9_]+@[a-zA-Z0–9]+.</description>
+      <description>In this article, we&amp;rsquo;ll build a simple regular expression engine that will be able to use [a-zA-Z0–9_]+@[a-zA-Z0–9]+.[a-zA-Z]{2,} pattern (. is used as literal instead of any character) to check for the validity of email addresses. We will use Golang. The article is divided into 3 sections:
+Parsing Building the epsilon-NFA Matching Parsing On its own, a regex string is just that &amp;mdash; a string. We need to transform it into something has a structure.</description>
     </item>
     
   </channel>
