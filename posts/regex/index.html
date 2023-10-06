@@ -363,7 +363,26 @@ Before getting into the parsing algorithm, let&rsquo;s define some types and con
 <p>With this, we conclude the steps required for parsing a regex string. Next, we&rsquo;ll examine how we can build a state machine out of those tokens we&rsquo;ve parsed.</p>
 <h2 id="building-the-epsilon-nfa">Building the epsilon-NFA</h2>
 <h3 id="whats-an-nfa">What&rsquo;s an NFA?</h3>
-<p>WIP</p>
+<p>A finite state machine (FSM) or a finite automata (FA) is an abstract machine that consists of a finite set of states, an initial state, terminal states and transitions between those states. FA has 2 types: <em>deterministic finite automata</em> (DFA) and <em>non-deterministic finite automata</em> (NFA).</p>
+<p>While automatas are used in many things, what&rsquo;s relevant to our context is that the way they are used for checking if a certain text is accepted. Below is an example to a <em>deterministic</em> finite automata. It will only accept the words <em>&ldquo;abd&rdquo;</em> and <em>&ldquo;ace&rdquo;</em>.</p>
+<p><img src="/unfunction/dfa_example.png" alt="DFA example"></p>
+<p>The way this acceptance check is performed is as follows:</p>
+<ol>
+<li>We&rsquo;re at the start state.</li>
+<li>We take the first character of the input string and see if there&rsquo;s a corresponding transition for that.
+<ul>
+<li>if yes, we transition to that state and continue with the next char</li>
+<li>if no, the string is not accepte</li>
+</ul>
+</li>
+<li>We repeat step 2 with the next set of characters until we finish the string and we check if we&rsquo;re at the end/terminal state.</li>
+<li>Being on the terminal state means that the string is accepted</li>
+<li>For the DFA above, <em>&ldquo;abd&rdquo;</em> will always end on the terminal state, while <em>&ldquo;abc&rdquo;</em> will get stuck before reaching the end state.</li>
+</ol>
+<p>In DFAs, given a state, with the same input you will always transition to the same target state. It&rsquo;s deterministic.</p>
+<p><img src="/unfunction/nfa_example.png" alt="eNFA example"></p>
+<p>In NFAs, given a state, with the same input you can go to different states, thus this makes it non-deterministic. <code>epsilon</code> represents an empty input. The NFA example above also only accepts the strings: <em>&ldquo;abd&rdquo;</em> and <em>&ldquo;ace&rdquo;</em>.</p>
+<p>In the next sections, we will take our list of parsed tokens and create an epsilon-NFA out of them. Once we have the NFA, all we will need to do would be to go through each state and try to consume one character from the input string at a time and see if we end up in the end state.</p>
 <h3 id="regular-expression-to-epsilon-nfa">Regular expression to epsilon-NFA</h3>
 <p>The previous step provides us with a list of tokens. We now need to convert these an epsilon-NFA. To achieve this, we will use an algorithm called Thompson&rsquo;s construction. We&rsquo;ll explain the algorithm with several visual examples and the corresponding code. But before we do that, let&rsquo;s go over the structure of the overall algorithm.</p>
 <p>To represent an NFA state, we&rsquo;ll use this simple structure:</p>
@@ -508,7 +527,7 @@ Before getting into the parsing algorithm, let&rsquo;s define some types and con
 <li>We go through each literal in the bracket</li>
 <li>We add a transition from the <code>start</code> state to the <code>end</code> state.</li>
 </ol>
-<p>Although in our regex engine, we will not implement a negated bracket expression (<em>where the characher should be non of the specified chars</em>), this is how the Thompson construction would look like:</p>
+<p>Although in our regex engine, we will not implement a negated bracket expression (<em>where the characher should be none of the specified chars</em>), this is how the Thompson construction would look like:</p>
 <p><img src="/unfunction/tokenToNfa_bracket_not.png" alt="bracket negation to nfa"></p>
 <ul>
 <li><code>*</code> represents any character</li>
