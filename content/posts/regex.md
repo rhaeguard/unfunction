@@ -1,18 +1,18 @@
 +++
 title = 'How to build a regex engine from scratch'
-date = 2023-10-05T22:40:33-06:00
+date = 2023-10-07T01:40:33-06:00
 draft = false
 github = 'rhaeguard/rgx'
 +++
 
-In this article, we'll build a simple regular expression engine that will be able to use `[a-zA-Z0–9_]+@[a-zA-Z0–9]+.[a-zA-Z]{2,}` pattern (_`.` is used as literal instead of any character_) to check for the validity of email addresses. We will use Golang. The article is divided into 3 sections:
+In this article, we'll build a simple regular expression engine that will be able to use `[a-zA-Z][a-zA-Z0-9_.]+@[a-zA-Z0-9]+.[a-zA-Z]{2,}` pattern (_`.` is used as literal instead of any character_) to check for the validity of email addresses. We will use Golang. The article is divided into 3 sections:
 
 - [Parsing](#parsing)
-- [Building the epsilon-NFA](#building-the-epsilon-nfa)
+- [Building the state machine](#building-the-state-machine)
 - [Matching](#matching)
 
 ## Parsing
-On its own, a regex string is just that --- a string. We need to transform it into something has a structure. Such as the following:
+On its own, a regex string is just that --- a string. We need to transform it into something that has a structure. Such as the following:
 
 ```go
 // original regex string
@@ -31,7 +31,7 @@ Repeat(2, infinity):
 
 
 In this section, we'll go over the process of parsing a regex string into tokens. 
-The core idea when it comes to parsing a regex string is simple, we will look for the characters that have special meanings such as `* + ? () [] {}` etc. and will try to create tokens out of those. It'll be more clear once we start writing some code.
+The core idea when it comes to parsing a regex string is simple, we will look for the characters that have special meanings such as `* + ? () [] {}` etc. and will try to create tokens with the help of those characters. It'll be more clear once we start writing some code.
 Before getting into the parsing algorithm, let's define some types and constants.
 
 ```go
@@ -62,7 +62,7 @@ type parseContext struct { // <4>
 ```
 
 1. It's just a type alias for the character type
-2. Constants for specifying the type of the token we are working with
+2. Constants for specifying the type of the token we are working with; think enums.
 3. The main token struct, it has a _type_ and a _value_ which can be anything depending on the given type
 4. `parseContext` will help us keep track of our positions and will hold the tokens parsed so far
 
@@ -122,16 +122,16 @@ func process(regex string, ctx *parseContext) {
 As we mentioned earlier, we try to match the characters we recognize and use them to parse tokens.
 
 1. If the current character is `(`, the opening parenthesis, we know we're dealing with a group, thus we try to parse the next couple of characters as a group.
-2. If it's `[`, the opening bracket, we know that it's a bracket expression, so we proceed accordingly
+2. If it's `[`, the opening bracket, we know that it's a bracket expression, so we proceed accordingly.
 3. If the character is a vertical pipe - `|`, that's an Or expression (alternative). 
-4. The characters `*`, `+` and `?` all represent repetition. I know that `?` means optional, but in terms of repetition, it simply means that the character repeats at most once.
+4. The characters `*` (Kleene's star), `+` and `?` all represent repetition. I know that `?` means optional, but in terms of repetition, it simply means that the character repeats at most once.
 5. Curly braces specify repetition as well. In fact, the previous repetition options can all be specified using braces:
    - `a* == a{0,}`
    - `a+ == a{1,}`
    - `a? == a{0,1}`
 6. If the character did not match with anything, we consider it as a literal. Please keep in mind that this is a simplified implementation. There are a lot of cases to consider when it comes to parsing regular expressions; for instance, 1 is a literal, but depending on the context it can actually be a part of a backreference `\1` that refers to the first captured group. Our simplified algorithm also DOES NOT consider the escape characters (which means `\a` is considered as a concatenation of two literals: `\` and `a`).
 
-Next, we'll examine each of the functions defined in the above snippet. Let's start with the parsing of group expressions **_(1)_**:
+Next, we'll examine each function defined in the above snippet. Let's start with the parsing of group expressions **_(1)_**:
 
 ```go
 func parseGroup(regex string, ctx *parseContext) {
@@ -164,6 +164,7 @@ ctx.tokens = append(ctx.tokens, token{
 ```
 
 - We create a new context specific to each group, so that we'll be able to bundle together all the tokens within a specific group without dealing with the top level context object. 
+- Once we're done parsing the group, we bundle all the parsed tokens into a new token of type `group` and append it to the global token list.
 
 Let's now see how we can parse bracket expressions **_(2)_**. This is the whole function, but we'll cover it step by step.
 
@@ -175,43 +176,44 @@ func parseBracket(regex string, ctx *parseContext) {
 		ch := regex[ctx.pos]
 
 		if ch == '-' { // <2>
-			next := regex[ctx.pos+1]
-			prev := literals[len(literals)-1][0] // <2-1>
-			literals[len(literals)-1] = fmt.Sprintf("%c%c", prev, next) // <2-2>
-			ctx.pos++
-		} else { // <3>
+			next := regex[ctx.pos+1] // <3-1>
+			prev := literals[len(literals)-1][0] // <3-1>
+			literals[len(literals)-1] = fmt.Sprintf("%c%c", prev, next) // <3-2>
+			ctx.pos++  // to consume the 'next' char
+		} else { // <4>
 			literals = append(literals, fmt.Sprintf("%c", ch))
 		}
 
-		ctx.pos++ // <4>
+		ctx.pos++ // <5>
 	}
 
 	literalsSet := map[uint8]bool{}
 
-	for _, l := range literals { // <5>
-		for i := l[0]; i <= l[len(l)-1]; i++ { // <6>
+	for _, l := range literals { // <6>
+		for i := l[0]; i <= l[len(l)-1]; i++ { // <7>
 			literalsSet[i] = true
 		}
 	}
 
-	ctx.tokens = append(ctx.tokens, token{ // <7>
+	ctx.tokens = append(ctx.tokens, token{ // <8>
 		tokenType: bracket,
 		value:     literalsSet,
 	})
 }
 ```
 
-1. Similarly to the way we parsed the group expression, we go through each character till we reach the closing bracket character (`]`). 
+1. Similar to the way we parsed the group expression, we go through each character till we reach the closing bracket (`]`). 
 2. For each character we check if it is `-` because that's the range indicator (e.g., `a-zK-Z2-8`). 
-   1. When it is indeed the range indicator, we take the next character from the regex string, and the previous character from the list of literals (_it's the last character in that list_). 
-   2. Then we save it back to the list as 2 characters together. We could choose a different way of saving the parsed literals, but I find this to be simple and easy to understand.
-3. If it's not the range indicator we consider it a single literal, and save it to the list.
-4. Move on to the next character
-5. `literals` list contains both literals and ranges. But those may contain duplicates. Consider the following regex: `[a-me-s]` . There's a clear overlap between the ranges. We go over the saved values and each literal to the `literalsSet`. By definition, sets do not contain duplicates, so that gets the job done. Since we're implementing this in Golang, we are using a map because there are no natively provided sets in Golang, and installing a library just for a set is unnecessary. 
-6. Add each character from the start till the end of the saved value.
-   1. In single literals, this will only add the literal itself
-   2. In ranges, it will add everything from the first character till the last character (inclusive).
-7. Finally, once we have all the duplicates removed, we save the bracket token to our list of tokens.
+3. When it is indeed the range indicator: 
+	1. We take the next character from the regex string, and the previous character from the list of literals (_it's the last character in that list_). 
+	2. Then we save it back to the list as 2 characters together. We could choose a different way of saving the parsed literals, but I find this to be simple and easy to understand.
+4. If it's not the range indicator we consider it a single literal, and save it to the list.
+5. Move on to the next character
+6. `literals` list contains both literals and ranges. But those may contain duplicates. Consider the following regex: `[a-me-s]` . There's a clear overlap between the ranges. We go over the saved values and add each literal to the `literalsSet`. By definition, sets do not contain duplicates, so that gets the job done. Since we're implementing this in Golang, we are using a map because there are no natively provided sets in Golang, and installing a library just for a set is unnecessary. 
+7. Add all the characters between the first and last characters of the saved value.
+   1. In single literals, this will only add the literal itself. Example: `b` will only add `b`
+   2. In ranges, it will add everything from the first character till the last character (inclusive). Example: `ad` will add `a`,`b`,`c`,`d`
+8. Finally, once we have all the duplicates removed, we save the bracket token to our list of tokens.
 
 Next in line is `parseOr` which is able to parse alternations **_(3)_**.
 
@@ -250,13 +252,15 @@ func parseOr(regex string, ctx *parseContext) {
 
 1. The alternation (_or_) operation has the following syntax: `<left>|<right>` or `(<left>|<right>)` meaning it is an alternation between what's in the left hand side and what's on the right hand side. By the time we encounter the `|` symbol, we've already parsed everything to the left of it. Now, it's time to parse everything to the right. It's almost the same code as parsing groups.  We create a right-hand-side specific empty context, and collect all the tokens into it. We do this until the end of the regex string or until we face a closing parenthesis. 
 2. Now that we are done parsing both sides, it's time to create the alternation token. The left side will contain all the tokens that were in the original context object, because it contains all the tokens we have parsed so far. 
-3. For the right hand side, we take all the tokens collected into the `rhsContext` object. For both tokens, we use `groupUncaptured` as the type, it's simply a type created to denote a bundle of tokens.
+3. For the right hand side, we take all the tokens collected into the `rhsContext` object. For both tokens, we use `groupUncaptured` as the type, it's simply a type created to indicate a bundle of tokens.
 4. We update the position of the original context.
 5. We create the alternation token and add it to the original context. One important thing is that we do not keep the old tokens in the original context as they are already contained in the alternation token.
 
 Now let's look at repetitions **_(4)_**.
 
 ```go
+const repeatInfinity = -1
+
 func parseRepeat(regex string, ctx *parseContext) {
 	ch := regex[ctx.pos]
 	var min, max int
@@ -286,7 +290,7 @@ func parseRepeat(regex string, ctx *parseContext) {
 ```
 
 - Basic idea for this particular method is that each symbol here specifies some minimum and maximum number of repetitions. `repeatInfinity` is `-1`, but we use it as infinity. 
-- Once we have the boundaries set, we simply take  the last parsed token, wrap it in a `repeat` token and appropriate boundaries, and finally save it back to the same position in the tokens list. 
+- Once we have the boundaries set, we simply take  the last parsed token (_because the repetition symbols are always to the right side of the token_), wrap it in a `repeat` token and appropriate boundaries, and finally save it back to the same position in the tokens list. 
 
 The other repetition expression has a bit longer code, but the idea is still the same **_(5)_**.
 
@@ -345,26 +349,28 @@ func parseRepeatSpecified(regex string, ctx *parseContext) {
 1. We need to get the string expression for boundaries which is everything between the curly braces `{}`.
 2. Next, we split that string into pieces separated by a comma `,`
 3. If there's only one element (e.g., `{1}`) that means the exact number of repeats, so `min` and `max` will be the same. The error handling syntax of Golang may make things look complicated, but it just means that if there's any error while converting a string into a integer, just panic and stop everything.
-4. If there are two pieces, the first value is the min, and the second one is the max (e.g., `{3,7}`). However, there's a chance that the second value might be missing: `{3,}`. In this example, the token is required to repeat at least three times, but no upper bound is set which means it will be `repeatInfinity`. The error handling is the same as in `parseRepeat` function.
+4. If there are two pieces, the first value is the min, and the second one is the max (e.g., `{3,7}`). However, there's a chance that the second value might be missing: `{3,}`. In this example, the token is required to repeat at least three times, but no upper bound is set which means it will be `repeatInfinity`.
 5. Now that we have the boundaries, we take  the last parsed token, wrap it in a `repeat` token and appropriate boundaries, and save it back to the same position in the tokens list. 
 
 With this, we conclude the steps required for parsing a regex string. Next, we'll examine how we can build a state machine out of those tokens we've parsed.
 
-## Building the epsilon-NFA
+## Building the state machine
 
-### What's an NFA?
+In this section, we'll learn how to build a state machine from the tokens we parsed, but first, let's discuss what a state machine is.
+
+### What's an finite state machine?
 
 A finite state machine (FSM) or a finite automata (FA) is an abstract machine that consists of a finite set of states, an initial state, terminal states and transitions between those states. FA has 2 types: _deterministic finite automata_ (DFA) and _non-deterministic finite automata_ (NFA). 
 
-While automatas are used in many things, what's relevant to our context is that the way they are used for checking if a certain text is accepted. Below is an example to a _deterministic_ finite automata. It will only accept the words _"abd"_ and _"ace"_.
+While automatas are used in many things, what's relevant to our context is the way they are used for checking if a certain text is accepted. Below is an example to a _deterministic_ finite automata. It will only accept the words _"abd"_ and _"ace"_.
 
 ![DFA example](/dfa_example.png)
 
 The way this acceptance check is performed is as follows:
-1. We're at the start state.
+1. We're at the start state, _always_.
 2. We take the first character of the input string and see if there's a corresponding transition for that.
 	- if yes, we transition to that state and continue with the next char
-	- if no, the string is not accepte
+	- if no, the string is not accepted
 3. We repeat step 2 with the next set of characters until we finish the string and we check if we're at the end/terminal state. 
 4. Being on the terminal state means that the string is accepted
 5. For the DFA above, _"abd"_ will always end on the terminal state, while _"abc"_ will get stuck before reaching the end state.
@@ -373,13 +379,13 @@ In DFAs, given a state, with the same input you will always transition to the sa
 
 ![eNFA example](/nfa_example.png)
 
-In NFAs, given a state, with the same input you can go to different states, thus this makes it non-deterministic. `epsilon` represents an empty input. The NFA example above also only accepts the strings: _"abd"_ and _"ace"_.
+In NFAs, given a state, with the same input you can go to different states, thus this makes it non-deterministic. `epsilon` represents an empty input. The NFA example above also only accepts the strings: _"abd"_ and _"ace"_. But notice how with the epsilon value you can transition into multiple states.
 
 In the next sections, we will take our list of parsed tokens and create an epsilon-NFA out of them. Once we have the NFA, all we will need to do would be to go through each state and try to consume one character from the input string at a time and see if we end up in the end state.
 
 ### Regular expression to epsilon-NFA
 
-The previous step provides us with a list of tokens. We now need to convert these an epsilon-NFA. To achieve this, we will use an algorithm called Thompson's construction. We'll explain the algorithm with several visual examples and the corresponding code. But before we do that, let's go over the structure of the overall algorithm.
+The previous step provides us with a list of tokens. We now need to convert these to an epsilon-NFA. To achieve this, we will use an algorithm called Thompson's construction. It's an algorithm to construct and combine multiple NFAs into one NFA.
 
 To represent an NFA state, we'll use this simple structure:
 
@@ -395,7 +401,7 @@ type state struct {
 2. `terminal` indicates wheteher the state's the final state. Reaching this state means that the input matches with the regex.
 3. `transitions` is a map where a character maps to a list of different states.
 
-This is the high-level visualization of the algorithm:
+This is the high-level visualization of the NFA construction algorithm:
 
 ![Creating an NFA from regular expression, high level view](/toNFA_explained.png)
 
@@ -417,7 +423,10 @@ func toNfa(ctx *parseContext) *state {
 
 	for i := 1; i < len(ctx.tokens); i++ { // <2>
 		startNext, endNext := tokenToNfa(&ctx.tokens[i]) // <3>
-		endState.transitions[epsilonChar] = append(endState.transitions[epsilonChar], startNext) // <4>
+		endState.transitions[epsilonChar] = append(
+			endState.transitions[epsilonChar], 
+			startNext,
+		) // <4>
 		endState = endNext // <5>
 	}
 
@@ -432,7 +441,10 @@ func toNfa(ctx *parseContext) *state {
 		terminal:    true,
 	}
 
-	endState.transitions[epsilonChar] = append(endState.transitions[epsilonChar], end) // <8>
+	endState.transitions[epsilonChar] = append(
+		endState.transitions[epsilonChar], 
+		end,
+	) // <8>
 
 	return start // <9>
 }
@@ -448,7 +460,7 @@ func toNfa(ctx *parseContext) *state {
 8. The end state of the last NFA we created now has an epsilon transition to the terminal state.
 9. Finally, we return the start state because that's the entrypoint.
 
-Now that we have an overall outline of what we're doing to construct our NFA, let's take a look at how each token is converted into an NFA.
+Now that we have the outline of what we're doing to construct our NFA, let's take a look at how each token is converted into an NFA.
 
 ```go
 // returns (start, end)
@@ -497,7 +509,7 @@ case literal:
 
 ![or to nfa](/tokenToNfa_or.png)
 
-- Or means a choice between two different paths. Recall that in the parsing phase, the value for or token had _left_ and _right_ sides (shown in the diagram as well). Each of these tokens represent different NFAs. 
+- Or means a choice between two different paths. Recall that in the parsing phase, the value for the or token had _left_ and _right_ sides (shown in the diagram as well). Each of these tokens represents different NFAs. 
 - To create the Or NFA, we need to have:
 	- an epsilon transition from the start state to the starts of both left and right NFAs
 	- an epsilon transition from the ends of both left and right NFAs to the end state.
@@ -569,7 +581,7 @@ case group, groupUncaptured:
 
 #### Repetition
 
-Out of all the examples we've covered, understanding repetition might be the most trickiest, thus we'll take it step by step and try to figure out a generalized solution that covers all repetition cases.
+Out of all the examples we've covered, understanding repetition might be the trickiest, thus we'll take it step by step and try to figure out a generalized solution that covers all repetition cases.
 
 In all the examples, we're about to go through, `A` will represent any NFA.
 
@@ -582,7 +594,7 @@ Let's start with asterisk (Kleene's star), plus and question mark (optional). In
 	- For skipping `A`, we add an epsilon transition from the start state to the end state directly, bypassing `A` altogether.
 	- For repeating any number of times, we add an epsilon transition from the end state to the start of `A`
 - `+` means that `A` must be repeated at least once, and no upper bound is set.
-	- To achieve the the minimum occurrence requirement (which is 1), we simply remove the epsilon transtion from the `*` example. Now there's no way to bypass `A`.
+	- To achieve the the minimum occurrence requirement (which is 1), we simply remove the epsilon transtion from the `*` example. Now, there's no way to bypass `A`.
 - `?` means that `A` can either be skipped or it can occur exactly once
 	- This is very similar to `*` example, and we only need to remove the epsilon transition from the end state to the start of `A`.
 - Notes:
@@ -681,11 +693,11 @@ case repeat:
 2. `copyCount` is the maximum number of times we need to create an NFA from `p.token`.
 	- if the max is infinity and min is 0, it is 1 because we need to create at least one copy
 	- if the max is infinity and min is non-zero, it is the min value because, we need to repeat it at least `p.min` times.
-	- if the max is non-infinity, `copyCount` is whatever the max is.
+	- if the max is not infinity, `copyCount` is whatever the max is.
 3.  Just like we did in the group type, we need to concatenate multiple NFAs, so we start by creating the first copy of this NFA.
 4. The start state is connected to the start of this new NFA.
 5. We iterate the remaining amount of times
-6. Actual concatenation step where we connect the end of the previous NFA to the start of the current NFA.
+6. The actual concatenation step; where we connect the end of the previous NFA to the start of the current NFA.
 7. Save the start and end of the current NFA.
 8. Once we have created the minimum required number of NFAs, the rest must be optional. Thus, we add an epsilon transition from the start of each of those new optional NFAs to the end state.
 9. Connect the end of the last NFA, to the end state.
@@ -693,7 +705,7 @@ case repeat:
 
 #### Example
 
-Considering all the techniques we discussed above, this is what we would generate this regex: `19[5-9][0-9]`:
+Considering all the techniques we discussed above, this is what we would generate for this regex: `19[5-9][0-9]`:
 
 ![complete example](/example_nfa_complete.png)
 
@@ -762,7 +774,7 @@ func (s *state) check(input string, pos int) bool { // <1>
 3. If we're at the end of the string and at the terminal state, that means the string matches the regex, so we return true.
 4. For the current character, we check if there's any transition specified. 
 5. If such transition exists, we grab the next state, increment the position pointer and check. If check is a success, we return true.
-	- Example: let's say `input` is `hello`. Once there's a match for `h`, the next state would try to match the string `ello`.
+	- Example: let's say `input` is `hello`. Once there's a match for `h`, the next state would try to match the character `e`.
 6. If there's no character transition, we check for empty/epsilon transitions. 
 7. For all such transitions, we try to check the next state with the same input and position. Since it's an empty transition, there's no need for incrementing the position. If the check is a success, we return true
 8. There's a chance that we get stuck at the start of the text and never actually progress. This condition is to prevent such conditions.
@@ -770,7 +782,7 @@ func (s *state) check(input string, pos int) bool { // <1>
 
 ### Testing
 
-Finally, let's test our code against some input.
+Finally, let's test our code against some input. Please keep in mind that, some of those _invalid_ emails are actually valid in real world, but since our regex is a simplified version, it does not accept those ones.
 
 ```go
 func TestNfa(t *testing.T) {
@@ -846,6 +858,8 @@ func TestNfa(t *testing.T) {
 All the tests pass. We're done.
 
 Of course, there's a lot to improve in the code. You can check out the Github repository for this project. While the code will not be the exact same, the ideas are the same.
+
+Cheers!
 
 ## References
 

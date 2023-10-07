@@ -29,6 +29,8 @@
     ordered = false
 
 [params]
+  [params.meta]
+    favicon = "favicon.ico"
   [params.theme_config]
     appearance = "light"
     back_home_text = "home"
