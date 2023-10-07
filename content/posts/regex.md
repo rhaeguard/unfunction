@@ -358,7 +358,7 @@ A finite state machine (FSM) or a finite automata (FA) is an abstract machine th
 
 While automatas are used in many things, what's relevant to our context is that the way they are used for checking if a certain text is accepted. Below is an example to a _deterministic_ finite automata. It will only accept the words _"abd"_ and _"ace"_.
 
-![DFA example](/unfunction/dfa_example.png)
+![DFA example](/dfa_example.png)
 
 The way this acceptance check is performed is as follows:
 1. We're at the start state.
@@ -371,7 +371,7 @@ The way this acceptance check is performed is as follows:
 
 In DFAs, given a state, with the same input you will always transition to the same target state. It's deterministic. 
 
-![eNFA example](/unfunction/nfa_example.png)
+![eNFA example](/nfa_example.png)
 
 In NFAs, given a state, with the same input you can go to different states, thus this makes it non-deterministic. `epsilon` represents an empty input. The NFA example above also only accepts the strings: _"abd"_ and _"ace"_.
 
@@ -397,12 +397,12 @@ type state struct {
 
 This is the high-level visualization of the algorithm:
 
-![Creating an NFA from regular expression, high level view](/unfunction/toNFA_explained.png)
+![Creating an NFA from regular expression, high level view](/toNFA_explained.png)
 
 - We will have a start (pink) and terminal (blue) states.
 - For each token, we'll create a separate NFA, and these NFAs will be concatenated with epsilon transitions. Last state of the previous NFA, will be connected to the first state of the next NFA, like this:
 
-![Concatenation process](/unfunction/toNFA_concat.png)
+![Concatenation process](/toNFA_concat.png)
 
 - There will be an epsilon transition from the start state to the first state (s1) of the concatenated NFAs.
 - There will be an epsilon transition from the last state of the concatenated NFAs to the terminal state.
@@ -482,7 +482,7 @@ In the next couple of sections, we'll go over each token type, visualize the ste
 
 Let's start with the literals as they are the simplest to explain.
 
-![literal to nfa](/unfunction/tokenToNfa_literal.png)
+![literal to nfa](/tokenToNfa_literal.png)
 
 - In order to go from `start` to `end`, we need the transition `ch`. `ch` represents a single character.
 
@@ -495,7 +495,7 @@ case literal:
 
 #### or/alternative
 
-![or to nfa](/unfunction/tokenToNfa_or.png)
+![or to nfa](/tokenToNfa_or.png)
 
 - Or means a choice between two different paths. Recall that in the parsing phase, the value for or token had _left_ and _right_ sides (shown in the diagram as well). Each of these tokens represent different NFAs. 
 - To create the Or NFA, we need to have:
@@ -522,7 +522,7 @@ case or:
 
 #### Bracket expression
 
-![bracket to nfa](/unfunction/tokenToNfa_bracket.png)
+![bracket to nfa](/tokenToNfa_bracket.png)
 
 - We can think of bracket expressions as a big Or expressions. For example, `[a-c0-2x]` means `a|b|c|0|1|2|x`. So it makes sense for it to visually resemble the Or expression. One minor difference is that in bracket expressions we work with literals and not arbitrary NFAs, so we can simply create a transition for each literal from the start state to the end state. 
 - The image is the visualization of the expression: `[a-c]`
@@ -541,7 +541,7 @@ case bracket:
 
 Although in our regex engine, we will not implement a negated bracket expression (_where the characher should be none of the specified chars_), this is how the Thompson construction would look like: 
 
-![bracket negation to nfa](/unfunction/tokenToNfa_bracket_not.png)
+![bracket negation to nfa](/tokenToNfa_bracket_not.png)
 
 - `*` represents any character
 - This really depends on the way the engine is implemented, but one simple way could be to look for exact matches, if there's none, we could use the any character transition.
@@ -575,7 +575,7 @@ In all the examples, we're about to go through, `A` will represent any NFA.
 
 Let's start with asterisk (Kleene's star), plus and question mark (optional). In each of the three examples below, we've also specified the corresponding minimum and maximum occurrence requirements.
 
-![repeat 1 to nfa](/unfunction/tokenToNfa_repeat_1.png)
+![repeat 1 to nfa](/tokenToNfa_repeat_1.png)
 
 - Each example has an epsilon transition from start state to the start of `A`, and from the end of `A` to the end state. This indicates repeating the NFA `A` exactly once.
 - `*`, means that `A` can be skipped or repeated any number of times:
@@ -591,20 +591,20 @@ Let's start with asterisk (Kleene's star), plus and question mark (optional). In
 
 Next, let's take a look at the case where exact number of repetitions are specified.
 
-![repeat 2 to nfa](/unfunction/tokenToNfa_repeat_2.png)
+![repeat 2 to nfa](/tokenToNfa_repeat_2.png)
 
 - We simply concatenate the same NFA `A` _m_ times.
 
 What if the minimum is specified, but the upper bound is the infinity?
 
-![repeat 3 to nfa](/unfunction/tokenToNfa_repeat_3.png)
+![repeat 3 to nfa](/tokenToNfa_repeat_3.png)
 
 - We still concatenate the same NFA `A` _m_ times because that's the minimum amount of times it needs to repeat. 
 - But we also add an epsilon transition from the end state to the start of the final instance of `A` (_remember the second note from above_)
 
 Now, onto the final case. Both minimum and maximum number of occurrences are specified, and maximum is not infinity.
 
-![repeat 4 to nfa](/unfunction/tokenToNfa_repeat_4.png)
+![repeat 4 to nfa](/tokenToNfa_repeat_4.png)
 
 - We know that `A` needs to repeat _m_ times. This means that we have to concatenate `A` _m_ times. 
 - The remaining _(n-m)_ repetitions are completely optional. So at any point, after matching the minimum number of repetitions, we should be able to go to the end state.
@@ -695,7 +695,7 @@ case repeat:
 
 Considering all the techniques we discussed above, this is what we would generate this regex: `19[5-9][0-9]`:
 
-![complete example](/unfunction/example_nfa_complete.png)
+![complete example](/example_nfa_complete.png)
 
 ## Matching
 
@@ -703,7 +703,7 @@ Final piece of our regex engine is the matching logic. The basic idea is that we
 
 While going through the string, we'll use a cursor/pointer to a certain position in the string. The image below visualizes this. Keep in mind that, in addition to each index in the string, our pointer can also reference to the beginning of the string (prior to matching) and the end of the string (once we exhaust all the characters).
 
-![cursur positions](/unfunction/string_with_positions.png)
+![cursur positions](/string_with_positions.png)
 
 In code, we'll have these helper constants and method.
 
