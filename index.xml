@@ -2,17 +2,17 @@
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
     <title>unfunction</title>
-    <link>https://rhaeguard.github.io/unfunction/</link>
+    <link>https://rhaeguard.github.io/</link>
     <description>Recent content on unfunction</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
-    <lastBuildDate>Thu, 25 Aug 2022 21:30:04 +0800</lastBuildDate><atom:link href="https://rhaeguard.github.io/unfunction/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Thu, 25 Aug 2022 21:30:04 +0800</lastBuildDate><atom:link href="https://rhaeguard.github.io/index.xml" rel="self" type="application/rss+xml" />
     <item>
       <title>How to build a regex engine from scratch</title>
-      <link>https://rhaeguard.github.io/unfunction/posts/regex/</link>
+      <link>https://rhaeguard.github.io/posts/regex/</link>
       <pubDate>Thu, 05 Oct 2023 22:40:33 -0600</pubDate>
       
-      <guid>https://rhaeguard.github.io/unfunction/posts/regex/</guid>
+      <guid>https://rhaeguard.github.io/posts/regex/</guid>
       <description>In this article, we&amp;rsquo;ll build a simple regular expression engine that will be able to use [a-zA-Z0–9_]+@[a-zA-Z0–9]+.[a-zA-Z]{2,} pattern (. is used as literal instead of any character) to check for the validity of email addresses. We will use Golang. The article is divided into 3 sections:
 Parsing Building the epsilon-NFA Matching Parsing On its own, a regex string is just that &amp;mdash; a string. We need to transform it into something has a structure.</description>
     </item>

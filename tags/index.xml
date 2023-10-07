@@ -2,9 +2,9 @@
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
     <title>Tags on unfunction</title>
-    <link>https://rhaeguard.github.io/unfunction/tags/</link>
+    <link>https://rhaeguard.github.io/tags/</link>
     <description>Recent content in Tags on unfunction</description>
     <generator>Hugo -- gohugo.io</generator>
-    <language>en-us</language><atom:link href="https://rhaeguard.github.io/unfunction/tags/index.xml" rel="self" type="application/rss+xml" />
+    <language>en-us</language><atom:link href="https://rhaeguard.github.io/tags/index.xml" rel="self" type="application/rss+xml" />
   </channel>
 </rss>
