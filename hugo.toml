@@ -1,4 +1,4 @@
-baseURL = 'https://rhaeguard.github.io/unfunction/'
+baseURL = 'https://rhaeguard.github.io/'
 languageCode = 'en-us'
 title = "unfunction"
 theme = "nostyleplease"
