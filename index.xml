@@ -10,11 +10,11 @@
     <item>
       <title>How to build a regex engine from scratch</title>
       <link>https://rhaeguard.github.io/posts/regex/</link>
-      <pubDate>Thu, 05 Oct 2023 22:40:33 -0600</pubDate>
+      <pubDate>Sat, 07 Oct 2023 01:40:33 -0600</pubDate>
       
       <guid>https://rhaeguard.github.io/posts/regex/</guid>
-      <description>In this article, we&amp;rsquo;ll build a simple regular expression engine that will be able to use [a-zA-Z0–9_]+@[a-zA-Z0–9]+.[a-zA-Z]{2,} pattern (. is used as literal instead of any character) to check for the validity of email addresses. We will use Golang. The article is divided into 3 sections:
-Parsing Building the epsilon-NFA Matching Parsing On its own, a regex string is just that &amp;mdash; a string. We need to transform it into something has a structure.</description>
+      <description>In this article, we&amp;rsquo;ll build a simple regular expression engine that will be able to use [a-zA-Z][a-zA-Z0-9_.]+@[a-zA-Z0-9]+.[a-zA-Z]{2,} pattern (. is used as literal instead of any character) to check for the validity of email addresses. We will use Golang. The article is divided into 3 sections:
+Parsing Building the state machine Matching Parsing On its own, a regex string is just that &amp;mdash; a string. We need to transform it into something that has a structure.</description>
     </item>
     
   </channel>

@@ -3,8 +3,8 @@
   <meta charset="utf-8" />
   <meta http-equiv="X-UA-Compatible" content="IE=edge" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-   <meta name="description" content="In this article, we&rsquo;ll build a simple regular expression engine that will be able to use [a-zA-Z0–9_]&#43;@[a-zA-Z0–9]&#43;.[a-zA-Z]{2,} pattern (. is used as literal instead of any character) to check for the validity of email addresses. We will use Golang. The article is divided into 3 sections:
-Parsing Building the epsilon-NFA Matching Parsing On its own, a regex string is just that &mdash; a string. We need to transform it into something has a structure.">  
+   <meta name="description" content="In this article, we&rsquo;ll build a simple regular expression engine that will be able to use [a-zA-Z][a-zA-Z0-9_.]&#43;@[a-zA-Z0-9]&#43;.[a-zA-Z]{2,} pattern (. is used as literal instead of any character) to check for the validity of email addresses. We will use Golang. The article is divided into 3 sections:
+Parsing Building the state machine Matching Parsing On its own, a regex string is just that &mdash; a string. We need to transform it into something that has a structure.">  
 
   <title>
     
@@ -13,7 +13,8 @@ Parsing Building the epsilon-NFA Matching Parsing On its own, a regex string is 
   </title>
 
 
-  <link rel="shortcut icon" type="image/x-icon" href="/" />
+  
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon.png">
   
   
   
@@ -29,8 +30,8 @@ Parsing Building the epsilon-NFA Matching Parsing On its own, a regex string is 
 
 <article>
     <p class="post-meta">
-        <time datetime="2023-10-05 22:40:33 -0600 -0600">
-            2023-10-05
+        <time datetime="2023-10-07 01:40:33 -0600 -0600">
+            2023-10-07
         </time>
     </p>
 
@@ -47,14 +48,14 @@ Parsing Building the epsilon-NFA Matching Parsing On its own, a regex string is 
 
     
 
-    <p>In this article, we&rsquo;ll build a simple regular expression engine that will be able to use <code>[a-zA-Z0–9_]+@[a-zA-Z0–9]+.[a-zA-Z]{2,}</code> pattern (<em><code>.</code> is used as literal instead of any character</em>) to check for the validity of email addresses. We will use Golang. The article is divided into 3 sections:</p>
+    <p>In this article, we&rsquo;ll build a simple regular expression engine that will be able to use <code>[a-zA-Z][a-zA-Z0-9_.]+@[a-zA-Z0-9]+.[a-zA-Z]{2,}</code> pattern (<em><code>.</code> is used as literal instead of any character</em>) to check for the validity of email addresses. We will use Golang. The article is divided into 3 sections:</p>
 <ul>
 <li><a href="#parsing">Parsing</a></li>
-<li><a href="#building-the-epsilon-nfa">Building the epsilon-NFA</a></li>
+<li><a href="#building-the-state-machine">Building the state machine</a></li>
 <li><a href="#matching">Matching</a></li>
 </ul>
 <h2 id="parsing">Parsing</h2>
-<p>On its own, a regex string is just that &mdash; a string. We need to transform it into something has a structure. Such as the following:</p>
+<p>On its own, a regex string is just that &mdash; a string. We need to transform it into something that has a structure. Such as the following:</p>
 <div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#75715e">// original regex string
 </span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#e6db74">&#34;[a-zA-Z0–9_]+@[a-zA-Z0–9]+.[a-zA-Z]{2,}&#34;</span>
 </span></span><span style="display:flex;"><span>
@@ -68,7 +69,7 @@ Parsing Building the epsilon-NFA Matching Parsing On its own, a regex string is 
 </span></span><span style="display:flex;"><span><span style="color:#a6e22e">Repeat</span>(<span style="color:#ae81ff">2</span>, <span style="color:#a6e22e">infinity</span>):
 </span></span><span style="display:flex;"><span>   <span style="color:#a6e22e">Range</span>(<span style="color:#a6e22e">a</span>, <span style="color:#a6e22e">b</span>,<span style="color:#f92672">...</span><span style="color:#a6e22e">z</span>, <span style="color:#a6e22e">A</span>, <span style="color:#a6e22e">B</span>,<span style="color:#f92672">...</span>,<span style="color:#a6e22e">Z</span>)
 </span></span></code></pre></div><p>In this section, we&rsquo;ll go over the process of parsing a regex string into tokens. 
-The core idea when it comes to parsing a regex string is simple, we will look for the characters that have special meanings such as <code>* + ? () [] {}</code> etc. and will try to create tokens out of those. It&rsquo;ll be more clear once we start writing some code.
+The core idea when it comes to parsing a regex string is simple, we will look for the characters that have special meanings such as <code>* + ? () [] {}</code> etc. and will try to create tokens with the help of those characters. It&rsquo;ll be more clear once we start writing some code.
 Before getting into the parsing algorithm, let&rsquo;s define some types and constants.</p>
 <div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">type</span> <span style="color:#a6e22e">tokenType</span> <span style="color:#66d9ef">uint8</span> <span style="color:#75715e">// &lt;1&gt;
 </span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
@@ -96,7 +97,7 @@ Before getting into the parsing algorithm, let&rsquo;s define some types and con
 </span></span><span style="display:flex;"><span>}
 </span></span></code></pre></div><ol>
 <li>It&rsquo;s just a type alias for the character type</li>
-<li>Constants for specifying the type of the token we are working with</li>
+<li>Constants for specifying the type of the token we are working with; think enums.</li>
 <li>The main token struct, it has a <em>type</em> and a <em>value</em> which can be anything depending on the given type</li>
 <li><code>parseContext</code> will help us keep track of our positions and will hold the tokens parsed so far</li>
 </ol>
@@ -150,9 +151,9 @@ Before getting into the parsing algorithm, let&rsquo;s define some types and con
 </span></span></code></pre></div><p>As we mentioned earlier, we try to match the characters we recognize and use them to parse tokens.</p>
 <ol>
 <li>If the current character is <code>(</code>, the opening parenthesis, we know we&rsquo;re dealing with a group, thus we try to parse the next couple of characters as a group.</li>
-<li>If it&rsquo;s <code>[</code>, the opening bracket, we know that it&rsquo;s a bracket expression, so we proceed accordingly</li>
+<li>If it&rsquo;s <code>[</code>, the opening bracket, we know that it&rsquo;s a bracket expression, so we proceed accordingly.</li>
 <li>If the character is a vertical pipe - <code>|</code>, that&rsquo;s an Or expression (alternative).</li>
-<li>The characters <code>*</code>, <code>+</code> and <code>?</code> all represent repetition. I know that <code>?</code> means optional, but in terms of repetition, it simply means that the character repeats at most once.</li>
+<li>The characters <code>*</code> (Kleene&rsquo;s star), <code>+</code> and <code>?</code> all represent repetition. I know that <code>?</code> means optional, but in terms of repetition, it simply means that the character repeats at most once.</li>
 <li>Curly braces specify repetition as well. In fact, the previous repetition options can all be specified using braces:
 <ul>
 <li><code>a* == a{0,}</code></li>
@@ -162,7 +163,7 @@ Before getting into the parsing algorithm, let&rsquo;s define some types and con
 </li>
 <li>If the character did not match with anything, we consider it as a literal. Please keep in mind that this is a simplified implementation. There are a lot of cases to consider when it comes to parsing regular expressions; for instance, 1 is a literal, but depending on the context it can actually be a part of a backreference <code>\1</code> that refers to the first captured group. Our simplified algorithm also DOES NOT consider the escape characters (which means <code>\a</code> is considered as a concatenation of two literals: <code>\</code> and <code>a</code>).</li>
 </ol>
-<p>Next, we&rsquo;ll examine each of the functions defined in the above snippet. Let&rsquo;s start with the parsing of group expressions <strong><em>(1)</em></strong>:</p>
+<p>Next, we&rsquo;ll examine each function defined in the above snippet. Let&rsquo;s start with the parsing of group expressions <strong><em>(1)</em></strong>:</p>
 <div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">parseGroup</span>(<span style="color:#a6e22e">regex</span> <span style="color:#66d9ef">string</span>, <span style="color:#a6e22e">ctx</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">parseContext</span>) {
 </span></span><span style="display:flex;"><span>   <span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span> <span style="color:#f92672">+=</span> <span style="color:#ae81ff">1</span> <span style="color:#75715e">// get past the LPAREN (
 </span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>   <span style="color:#66d9ef">for</span> <span style="color:#a6e22e">regex</span>[<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span>] <span style="color:#f92672">!=</span> <span style="color:#e6db74">&#39;)&#39;</span> {
@@ -189,6 +190,7 @@ Before getting into the parsing algorithm, let&rsquo;s define some types and con
 </span></span><span style="display:flex;"><span>})
 </span></span></code></pre></div><ul>
 <li>We create a new context specific to each group, so that we&rsquo;ll be able to bundle together all the tokens within a specific group without dealing with the top level context object. </li>
+<li>Once we&rsquo;re done parsing the group, we bundle all the parsed tokens into a new token of type <code>group</code> and append it to the global token list.</li>
 </ul>
 <p>Let&rsquo;s now see how we can parse bracket expressions <strong><em>(2)</em></strong>. This is the whole function, but we&rsquo;ll cover it step by step.</p>
 <div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">parseBracket</span>(<span style="color:#a6e22e">regex</span> <span style="color:#66d9ef">string</span>, <span style="color:#a6e22e">ctx</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">parseContext</span>) {
@@ -198,45 +200,46 @@ Before getting into the parsing algorithm, let&rsquo;s define some types and con
 </span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#a6e22e">ch</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">regex</span>[<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span>]
 </span></span><span style="display:flex;"><span>
 </span></span><span style="display:flex;"><span>		<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">ch</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;-&#39;</span> { <span style="color:#75715e">// &lt;2&gt;
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>			<span style="color:#a6e22e">next</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">regex</span>[<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span><span style="color:#f92672">+</span><span style="color:#ae81ff">1</span>]
-</span></span><span style="display:flex;"><span>			<span style="color:#a6e22e">prev</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">literals</span>[len(<span style="color:#a6e22e">literals</span>)<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>][<span style="color:#ae81ff">0</span>] <span style="color:#75715e">// &lt;2-1&gt;
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>			<span style="color:#a6e22e">literals</span>[len(<span style="color:#a6e22e">literals</span>)<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>] = <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Sprintf</span>(<span style="color:#e6db74">&#34;%c%c&#34;</span>, <span style="color:#a6e22e">prev</span>, <span style="color:#a6e22e">next</span>) <span style="color:#75715e">// &lt;2-2&gt;
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>			<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span><span style="color:#f92672">++</span>
-</span></span><span style="display:flex;"><span>		} <span style="color:#66d9ef">else</span> { <span style="color:#75715e">// &lt;3&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>			<span style="color:#a6e22e">next</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">regex</span>[<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span><span style="color:#f92672">+</span><span style="color:#ae81ff">1</span>] <span style="color:#75715e">// &lt;3-1&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>			<span style="color:#a6e22e">prev</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">literals</span>[len(<span style="color:#a6e22e">literals</span>)<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>][<span style="color:#ae81ff">0</span>] <span style="color:#75715e">// &lt;3-1&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>			<span style="color:#a6e22e">literals</span>[len(<span style="color:#a6e22e">literals</span>)<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>] = <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Sprintf</span>(<span style="color:#e6db74">&#34;%c%c&#34;</span>, <span style="color:#a6e22e">prev</span>, <span style="color:#a6e22e">next</span>) <span style="color:#75715e">// &lt;3-2&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>			<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span><span style="color:#f92672">++</span>  <span style="color:#75715e">// to consume the &#39;next&#39; char
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		} <span style="color:#66d9ef">else</span> { <span style="color:#75715e">// &lt;4&gt;
 </span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>			<span style="color:#a6e22e">literals</span> = append(<span style="color:#a6e22e">literals</span>, <span style="color:#a6e22e">fmt</span>.<span style="color:#a6e22e">Sprintf</span>(<span style="color:#e6db74">&#34;%c&#34;</span>, <span style="color:#a6e22e">ch</span>))
 </span></span><span style="display:flex;"><span>		}
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span><span style="color:#f92672">++</span> <span style="color:#75715e">// &lt;4&gt;
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span><span style="color:#f92672">++</span> <span style="color:#75715e">// &lt;5&gt;
 </span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	}
 </span></span><span style="display:flex;"><span>
 </span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">literalsSet</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">map</span>[<span style="color:#66d9ef">uint8</span>]<span style="color:#66d9ef">bool</span>{}
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">_</span>, <span style="color:#a6e22e">l</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">literals</span> { <span style="color:#75715e">// &lt;5&gt;
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">i</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">l</span>[<span style="color:#ae81ff">0</span>]; <span style="color:#a6e22e">i</span> <span style="color:#f92672">&lt;=</span> <span style="color:#a6e22e">l</span>[len(<span style="color:#a6e22e">l</span>)<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>]; <span style="color:#a6e22e">i</span><span style="color:#f92672">++</span> { <span style="color:#75715e">// &lt;6&gt;
+</span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">_</span>, <span style="color:#a6e22e">l</span> <span style="color:#f92672">:=</span> <span style="color:#66d9ef">range</span> <span style="color:#a6e22e">literals</span> { <span style="color:#75715e">// &lt;6&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">i</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">l</span>[<span style="color:#ae81ff">0</span>]; <span style="color:#a6e22e">i</span> <span style="color:#f92672">&lt;=</span> <span style="color:#a6e22e">l</span>[len(<span style="color:#a6e22e">l</span>)<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>]; <span style="color:#a6e22e">i</span><span style="color:#f92672">++</span> { <span style="color:#75715e">// &lt;7&gt;
 </span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>			<span style="color:#a6e22e">literalsSet</span>[<span style="color:#a6e22e">i</span>] = <span style="color:#66d9ef">true</span>
 </span></span><span style="display:flex;"><span>		}
 </span></span><span style="display:flex;"><span>	}
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">tokens</span> = append(<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">tokens</span>, <span style="color:#a6e22e">token</span>{ <span style="color:#75715e">// &lt;7&gt;
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">tokens</span> = append(<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">tokens</span>, <span style="color:#a6e22e">token</span>{ <span style="color:#75715e">// &lt;8&gt;
 </span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#a6e22e">tokenType</span>: <span style="color:#a6e22e">bracket</span>,
 </span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">value</span>:     <span style="color:#a6e22e">literalsSet</span>,
 </span></span><span style="display:flex;"><span>	})
 </span></span><span style="display:flex;"><span>}
 </span></span></code></pre></div><ol>
-<li>Similarly to the way we parsed the group expression, we go through each character till we reach the closing bracket character (<code>]</code>).</li>
-<li>For each character we check if it is <code>-</code> because that&rsquo;s the range indicator (e.g., <code>a-zK-Z2-8</code>).
+<li>Similar to the way we parsed the group expression, we go through each character till we reach the closing bracket (<code>]</code>).</li>
+<li>For each character we check if it is <code>-</code> because that&rsquo;s the range indicator (e.g., <code>a-zK-Z2-8</code>).</li>
+<li>When it is indeed the range indicator:
 <ol>
-<li>When it is indeed the range indicator, we take the next character from the regex string, and the previous character from the list of literals (<em>it&rsquo;s the last character in that list</em>).</li>
+<li>We take the next character from the regex string, and the previous character from the list of literals (<em>it&rsquo;s the last character in that list</em>).</li>
 <li>Then we save it back to the list as 2 characters together. We could choose a different way of saving the parsed literals, but I find this to be simple and easy to understand.</li>
 </ol>
 </li>
 <li>If it&rsquo;s not the range indicator we consider it a single literal, and save it to the list.</li>
 <li>Move on to the next character</li>
-<li><code>literals</code> list contains both literals and ranges. But those may contain duplicates. Consider the following regex: <code>[a-me-s]</code> . There&rsquo;s a clear overlap between the ranges. We go over the saved values and each literal to the <code>literalsSet</code>. By definition, sets do not contain duplicates, so that gets the job done. Since we&rsquo;re implementing this in Golang, we are using a map because there are no natively provided sets in Golang, and installing a library just for a set is unnecessary.</li>
-<li>Add each character from the start till the end of the saved value.
+<li><code>literals</code> list contains both literals and ranges. But those may contain duplicates. Consider the following regex: <code>[a-me-s]</code> . There&rsquo;s a clear overlap between the ranges. We go over the saved values and add each literal to the <code>literalsSet</code>. By definition, sets do not contain duplicates, so that gets the job done. Since we&rsquo;re implementing this in Golang, we are using a map because there are no natively provided sets in Golang, and installing a library just for a set is unnecessary.</li>
+<li>Add all the characters between the first and last characters of the saved value.
 <ol>
-<li>In single literals, this will only add the literal itself</li>
-<li>In ranges, it will add everything from the first character till the last character (inclusive).</li>
+<li>In single literals, this will only add the literal itself. Example: <code>b</code> will only add <code>b</code></li>
+<li>In ranges, it will add everything from the first character till the last character (inclusive). Example: <code>ad</code> will add <code>a</code>,<code>b</code>,<code>c</code>,<code>d</code></li>
 </ol>
 </li>
 <li>Finally, once we have all the duplicates removed, we save the bracket token to our list of tokens.</li>
@@ -275,12 +278,14 @@ Before getting into the parsing algorithm, let&rsquo;s define some types and con
 </span></span></code></pre></div><ol>
 <li>The alternation (<em>or</em>) operation has the following syntax: <code>&lt;left&gt;|&lt;right&gt;</code> or <code>(&lt;left&gt;|&lt;right&gt;)</code> meaning it is an alternation between what&rsquo;s in the left hand side and what&rsquo;s on the right hand side. By the time we encounter the <code>|</code> symbol, we&rsquo;ve already parsed everything to the left of it. Now, it&rsquo;s time to parse everything to the right. It&rsquo;s almost the same code as parsing groups.  We create a right-hand-side specific empty context, and collect all the tokens into it. We do this until the end of the regex string or until we face a closing parenthesis.</li>
 <li>Now that we are done parsing both sides, it&rsquo;s time to create the alternation token. The left side will contain all the tokens that were in the original context object, because it contains all the tokens we have parsed so far.</li>
-<li>For the right hand side, we take all the tokens collected into the <code>rhsContext</code> object. For both tokens, we use <code>groupUncaptured</code> as the type, it&rsquo;s simply a type created to denote a bundle of tokens.</li>
+<li>For the right hand side, we take all the tokens collected into the <code>rhsContext</code> object. For both tokens, we use <code>groupUncaptured</code> as the type, it&rsquo;s simply a type created to indicate a bundle of tokens.</li>
 <li>We update the position of the original context.</li>
 <li>We create the alternation token and add it to the original context. One important thing is that we do not keep the old tokens in the original context as they are already contained in the alternation token.</li>
 </ol>
 <p>Now let&rsquo;s look at repetitions <strong><em>(4)</em></strong>.</p>
-<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">parseRepeat</span>(<span style="color:#a6e22e">regex</span> <span style="color:#66d9ef">string</span>, <span style="color:#a6e22e">ctx</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">parseContext</span>) {
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">const</span> <span style="color:#a6e22e">repeatInfinity</span> = <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">parseRepeat</span>(<span style="color:#a6e22e">regex</span> <span style="color:#66d9ef">string</span>, <span style="color:#a6e22e">ctx</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">parseContext</span>) {
 </span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">ch</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">regex</span>[<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">pos</span>]
 </span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">var</span> <span style="color:#a6e22e">min</span>, <span style="color:#a6e22e">max</span> <span style="color:#66d9ef">int</span>
 </span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">if</span> <span style="color:#a6e22e">ch</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;*&#39;</span> {
@@ -308,7 +313,7 @@ Before getting into the parsing algorithm, let&rsquo;s define some types and con
 </span></span><span style="display:flex;"><span>}
 </span></span></code></pre></div><ul>
 <li>Basic idea for this particular method is that each symbol here specifies some minimum and maximum number of repetitions. <code>repeatInfinity</code> is <code>-1</code>, but we use it as infinity.</li>
-<li>Once we have the boundaries set, we simply take  the last parsed token, wrap it in a <code>repeat</code> token and appropriate boundaries, and finally save it back to the same position in the tokens list.</li>
+<li>Once we have the boundaries set, we simply take  the last parsed token (<em>because the repetition symbols are always to the right side of the token</em>), wrap it in a <code>repeat</code> token and appropriate boundaries, and finally save it back to the same position in the tokens list.</li>
 </ul>
 <p>The other repetition expression has a bit longer code, but the idea is still the same <strong><em>(5)</em></strong>.</p>
 <div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">parseRepeatSpecified</span>(<span style="color:#a6e22e">regex</span> <span style="color:#66d9ef">string</span>, <span style="color:#a6e22e">ctx</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">parseContext</span>) {
@@ -364,22 +369,23 @@ Before getting into the parsing algorithm, let&rsquo;s define some types and con
 <li>We need to get the string expression for boundaries which is everything between the curly braces <code>{}</code>.</li>
 <li>Next, we split that string into pieces separated by a comma <code>,</code></li>
 <li>If there&rsquo;s only one element (e.g., <code>{1}</code>) that means the exact number of repeats, so <code>min</code> and <code>max</code> will be the same. The error handling syntax of Golang may make things look complicated, but it just means that if there&rsquo;s any error while converting a string into a integer, just panic and stop everything.</li>
-<li>If there are two pieces, the first value is the min, and the second one is the max (e.g., <code>{3,7}</code>). However, there&rsquo;s a chance that the second value might be missing: <code>{3,}</code>. In this example, the token is required to repeat at least three times, but no upper bound is set which means it will be <code>repeatInfinity</code>. The error handling is the same as in <code>parseRepeat</code> function.</li>
+<li>If there are two pieces, the first value is the min, and the second one is the max (e.g., <code>{3,7}</code>). However, there&rsquo;s a chance that the second value might be missing: <code>{3,}</code>. In this example, the token is required to repeat at least three times, but no upper bound is set which means it will be <code>repeatInfinity</code>.</li>
 <li>Now that we have the boundaries, we take  the last parsed token, wrap it in a <code>repeat</code> token and appropriate boundaries, and save it back to the same position in the tokens list.</li>
 </ol>
 <p>With this, we conclude the steps required for parsing a regex string. Next, we&rsquo;ll examine how we can build a state machine out of those tokens we&rsquo;ve parsed.</p>
-<h2 id="building-the-epsilon-nfa">Building the epsilon-NFA</h2>
-<h3 id="whats-an-nfa">What&rsquo;s an NFA?</h3>
+<h2 id="building-the-state-machine">Building the state machine</h2>
+<p>In this section, we&rsquo;ll learn how to build a state machine from the tokens we parsed, but first, let&rsquo;s discuss what a state machine is.</p>
+<h3 id="whats-an-finite-state-machine">What&rsquo;s an finite state machine?</h3>
 <p>A finite state machine (FSM) or a finite automata (FA) is an abstract machine that consists of a finite set of states, an initial state, terminal states and transitions between those states. FA has 2 types: <em>deterministic finite automata</em> (DFA) and <em>non-deterministic finite automata</em> (NFA).</p>
-<p>While automatas are used in many things, what&rsquo;s relevant to our context is that the way they are used for checking if a certain text is accepted. Below is an example to a <em>deterministic</em> finite automata. It will only accept the words <em>&ldquo;abd&rdquo;</em> and <em>&ldquo;ace&rdquo;</em>.</p>
+<p>While automatas are used in many things, what&rsquo;s relevant to our context is the way they are used for checking if a certain text is accepted. Below is an example to a <em>deterministic</em> finite automata. It will only accept the words <em>&ldquo;abd&rdquo;</em> and <em>&ldquo;ace&rdquo;</em>.</p>
 <p><img src="/dfa_example.png" alt="DFA example"></p>
 <p>The way this acceptance check is performed is as follows:</p>
 <ol>
-<li>We&rsquo;re at the start state.</li>
+<li>We&rsquo;re at the start state, <em>always</em>.</li>
 <li>We take the first character of the input string and see if there&rsquo;s a corresponding transition for that.
 <ul>
 <li>if yes, we transition to that state and continue with the next char</li>
-<li>if no, the string is not accepte</li>
+<li>if no, the string is not accepted</li>
 </ul>
 </li>
 <li>We repeat step 2 with the next set of characters until we finish the string and we check if we&rsquo;re at the end/terminal state.</li>
@@ -388,10 +394,10 @@ Before getting into the parsing algorithm, let&rsquo;s define some types and con
 </ol>
 <p>In DFAs, given a state, with the same input you will always transition to the same target state. It&rsquo;s deterministic.</p>
 <p><img src="/nfa_example.png" alt="eNFA example"></p>
-<p>In NFAs, given a state, with the same input you can go to different states, thus this makes it non-deterministic. <code>epsilon</code> represents an empty input. The NFA example above also only accepts the strings: <em>&ldquo;abd&rdquo;</em> and <em>&ldquo;ace&rdquo;</em>.</p>
+<p>In NFAs, given a state, with the same input you can go to different states, thus this makes it non-deterministic. <code>epsilon</code> represents an empty input. The NFA example above also only accepts the strings: <em>&ldquo;abd&rdquo;</em> and <em>&ldquo;ace&rdquo;</em>. But notice how with the epsilon value you can transition into multiple states.</p>
 <p>In the next sections, we will take our list of parsed tokens and create an epsilon-NFA out of them. Once we have the NFA, all we will need to do would be to go through each state and try to consume one character from the input string at a time and see if we end up in the end state.</p>
 <h3 id="regular-expression-to-epsilon-nfa">Regular expression to epsilon-NFA</h3>
-<p>The previous step provides us with a list of tokens. We now need to convert these an epsilon-NFA. To achieve this, we will use an algorithm called Thompson&rsquo;s construction. We&rsquo;ll explain the algorithm with several visual examples and the corresponding code. But before we do that, let&rsquo;s go over the structure of the overall algorithm.</p>
+<p>The previous step provides us with a list of tokens. We now need to convert these to an epsilon-NFA. To achieve this, we will use an algorithm called Thompson&rsquo;s construction. It&rsquo;s an algorithm to construct and combine multiple NFAs into one NFA.</p>
 <p>To represent an NFA state, we&rsquo;ll use this simple structure:</p>
 <div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">type</span> <span style="color:#a6e22e">state</span> <span style="color:#66d9ef">struct</span> {
 </span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">start</span>       <span style="color:#66d9ef">bool</span>
@@ -403,7 +409,7 @@ Before getting into the parsing algorithm, let&rsquo;s define some types and con
 <li><code>terminal</code> indicates wheteher the state&rsquo;s the final state. Reaching this state means that the input matches with the regex.</li>
 <li><code>transitions</code> is a map where a character maps to a list of different states.</li>
 </ol>
-<p>This is the high-level visualization of the algorithm:</p>
+<p>This is the high-level visualization of the NFA construction algorithm:</p>
 <p><img src="/toNFA_explained.png" alt="Creating an NFA from regular expression, high level view"></p>
 <ul>
 <li>We will have a start (pink) and terminal (blue) states.</li>
@@ -422,7 +428,10 @@ Before getting into the parsing algorithm, let&rsquo;s define some types and con
 </span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
 </span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">for</span> <span style="color:#a6e22e">i</span> <span style="color:#f92672">:=</span> <span style="color:#ae81ff">1</span>; <span style="color:#a6e22e">i</span> &lt; len(<span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">tokens</span>); <span style="color:#a6e22e">i</span><span style="color:#f92672">++</span> { <span style="color:#75715e">// &lt;2&gt;
 </span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#a6e22e">startNext</span>, <span style="color:#a6e22e">endNext</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">tokenToNfa</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">ctx</span>.<span style="color:#a6e22e">tokens</span>[<span style="color:#a6e22e">i</span>]) <span style="color:#75715e">// &lt;3&gt;
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#a6e22e">endState</span>.<span style="color:#a6e22e">transitions</span>[<span style="color:#a6e22e">epsilonChar</span>] = append(<span style="color:#a6e22e">endState</span>.<span style="color:#a6e22e">transitions</span>[<span style="color:#a6e22e">epsilonChar</span>], <span style="color:#a6e22e">startNext</span>) <span style="color:#75715e">// &lt;4&gt;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#a6e22e">endState</span>.<span style="color:#a6e22e">transitions</span>[<span style="color:#a6e22e">epsilonChar</span>] = append(
+</span></span><span style="display:flex;"><span>			<span style="color:#a6e22e">endState</span>.<span style="color:#a6e22e">transitions</span>[<span style="color:#a6e22e">epsilonChar</span>], 
+</span></span><span style="display:flex;"><span>			<span style="color:#a6e22e">startNext</span>,
+</span></span><span style="display:flex;"><span>		) <span style="color:#75715e">// &lt;4&gt;
 </span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>		<span style="color:#a6e22e">endState</span> = <span style="color:#a6e22e">endNext</span> <span style="color:#75715e">// &lt;5&gt;
 </span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	}
 </span></span><span style="display:flex;"><span>
@@ -437,7 +446,10 @@ Before getting into the parsing algorithm, let&rsquo;s define some types and con
 </span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">terminal</span>:    <span style="color:#66d9ef">true</span>,
 </span></span><span style="display:flex;"><span>	}
 </span></span><span style="display:flex;"><span>
-</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">endState</span>.<span style="color:#a6e22e">transitions</span>[<span style="color:#a6e22e">epsilonChar</span>] = append(<span style="color:#a6e22e">endState</span>.<span style="color:#a6e22e">transitions</span>[<span style="color:#a6e22e">epsilonChar</span>], <span style="color:#a6e22e">end</span>) <span style="color:#75715e">// &lt;8&gt;
+</span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">endState</span>.<span style="color:#a6e22e">transitions</span>[<span style="color:#a6e22e">epsilonChar</span>] = append(
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">endState</span>.<span style="color:#a6e22e">transitions</span>[<span style="color:#a6e22e">epsilonChar</span>], 
+</span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">end</span>,
+</span></span><span style="display:flex;"><span>	) <span style="color:#75715e">// &lt;8&gt;
 </span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
 </span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">return</span> <span style="color:#a6e22e">start</span> <span style="color:#75715e">// &lt;9&gt;
 </span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>}
@@ -452,7 +464,7 @@ Before getting into the parsing algorithm, let&rsquo;s define some types and con
 <li>The end state of the last NFA we created now has an epsilon transition to the terminal state.</li>
 <li>Finally, we return the start state because that&rsquo;s the entrypoint.</li>
 </ol>
-<p>Now that we have an overall outline of what we&rsquo;re doing to construct our NFA, let&rsquo;s take a look at how each token is converted into an NFA.</p>
+<p>Now that we have the outline of what we&rsquo;re doing to construct our NFA, let&rsquo;s take a look at how each token is converted into an NFA.</p>
 <div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#75715e">// returns (start, end)
 </span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">tokenToNfa</span>(<span style="color:#a6e22e">t</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">token</span>) (<span style="color:#f92672">*</span><span style="color:#a6e22e">state</span>, <span style="color:#f92672">*</span><span style="color:#a6e22e">state</span>) {
 </span></span><span style="display:flex;"><span>	<span style="color:#a6e22e">start</span> <span style="color:#f92672">:=</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">state</span>{
@@ -494,7 +506,7 @@ Before getting into the parsing algorithm, let&rsquo;s define some types and con
 <h4 id="oralternative">or/alternative</h4>
 <p><img src="/tokenToNfa_or.png" alt="or to nfa"></p>
 <ul>
-<li>Or means a choice between two different paths. Recall that in the parsing phase, the value for or token had <em>left</em> and <em>right</em> sides (shown in the diagram as well). Each of these tokens represent different NFAs.</li>
+<li>Or means a choice between two different paths. Recall that in the parsing phase, the value for the or token had <em>left</em> and <em>right</em> sides (shown in the diagram as well). Each of these tokens represents different NFAs.</li>
 <li>To create the Or NFA, we need to have:
 <ul>
 <li>an epsilon transition from the start state to the starts of both left and right NFAs</li>
@@ -557,7 +569,7 @@ Before getting into the parsing algorithm, let&rsquo;s define some types and con
 </span></span><span style="display:flex;"><span>		<span style="color:#a6e22e">end</span> = <span style="color:#a6e22e">te</span>
 </span></span><span style="display:flex;"><span>	}
 </span></span></code></pre></div><h4 id="repetition">Repetition</h4>
-<p>Out of all the examples we&rsquo;ve covered, understanding repetition might be the most trickiest, thus we&rsquo;ll take it step by step and try to figure out a generalized solution that covers all repetition cases.</p>
+<p>Out of all the examples we&rsquo;ve covered, understanding repetition might be the trickiest, thus we&rsquo;ll take it step by step and try to figure out a generalized solution that covers all repetition cases.</p>
 <p>In all the examples, we&rsquo;re about to go through, <code>A</code> will represent any NFA.</p>
 <p>Let&rsquo;s start with asterisk (Kleene&rsquo;s star), plus and question mark (optional). In each of the three examples below, we&rsquo;ve also specified the corresponding minimum and maximum occurrence requirements.</p>
 <p><img src="/tokenToNfa_repeat_1.png" alt="repeat 1 to nfa"></p>
@@ -571,7 +583,7 @@ Before getting into the parsing algorithm, let&rsquo;s define some types and con
 </li>
 <li><code>+</code> means that <code>A</code> must be repeated at least once, and no upper bound is set.
 <ul>
-<li>To achieve the the minimum occurrence requirement (which is 1), we simply remove the epsilon transtion from the <code>*</code> example. Now there&rsquo;s no way to bypass <code>A</code>.</li>
+<li>To achieve the the minimum occurrence requirement (which is 1), we simply remove the epsilon transtion from the <code>*</code> example. Now, there&rsquo;s no way to bypass <code>A</code>.</li>
 </ul>
 </li>
 <li><code>?</code> means that <code>A</code> can either be skipped or it can occur exactly once
@@ -673,20 +685,20 @@ Before getting into the parsing algorithm, let&rsquo;s define some types and con
 <ul>
 <li>if the max is infinity and min is 0, it is 1 because we need to create at least one copy</li>
 <li>if the max is infinity and min is non-zero, it is the min value because, we need to repeat it at least <code>p.min</code> times.</li>
-<li>if the max is non-infinity, <code>copyCount</code> is whatever the max is.</li>
+<li>if the max is not infinity, <code>copyCount</code> is whatever the max is.</li>
 </ul>
 </li>
 <li>Just like we did in the group type, we need to concatenate multiple NFAs, so we start by creating the first copy of this NFA.</li>
 <li>The start state is connected to the start of this new NFA.</li>
 <li>We iterate the remaining amount of times</li>
-<li>Actual concatenation step where we connect the end of the previous NFA to the start of the current NFA.</li>
+<li>The actual concatenation step; where we connect the end of the previous NFA to the start of the current NFA.</li>
 <li>Save the start and end of the current NFA.</li>
 <li>Once we have created the minimum required number of NFAs, the rest must be optional. Thus, we add an epsilon transition from the start of each of those new optional NFAs to the end state.</li>
 <li>Connect the end of the last NFA, to the end state.</li>
 <li>If the upper bound is infinity, add an epsilon transition from the end state to the start of the last NFA.</li>
 </ol>
 <h4 id="example">Example</h4>
-<p>Considering all the techniques we discussed above, this is what we would generate this regex: <code>19[5-9][0-9]</code>:</p>
+<p>Considering all the techniques we discussed above, this is what we would generate for this regex: <code>19[5-9][0-9]</code>:</p>
 <p><img src="/example_nfa_complete.png" alt="complete example"></p>
 <h2 id="matching">Matching</h2>
 <p>Final piece of our regex engine is the matching logic. The basic idea is that we&rsquo;ll feed each character of the test string, in order, to our current NFA state until we reach to the end of the string. If we finish the entire string and we&rsquo;re at the terminal state, it means the string matches with the regex.</p>
@@ -743,7 +755,7 @@ Before getting into the parsing algorithm, let&rsquo;s define some types and con
 <li>For the current character, we check if there&rsquo;s any transition specified.</li>
 <li>If such transition exists, we grab the next state, increment the position pointer and check. If check is a success, we return true.
 <ul>
-<li>Example: let&rsquo;s say <code>input</code> is <code>hello</code>. Once there&rsquo;s a match for <code>h</code>, the next state would try to match the string <code>ello</code>.</li>
+<li>Example: let&rsquo;s say <code>input</code> is <code>hello</code>. Once there&rsquo;s a match for <code>h</code>, the next state would try to match the character <code>e</code>.</li>
 </ul>
 </li>
 <li>If there&rsquo;s no character transition, we check for empty/epsilon transitions.</li>
@@ -752,7 +764,7 @@ Before getting into the parsing algorithm, let&rsquo;s define some types and con
 <li>If nothing matches, it&rsquo;s a failure, and we return false.</li>
 </ol>
 <h3 id="testing">Testing</h3>
-<p>Finally, let&rsquo;s test our code against some input.</p>
+<p>Finally, let&rsquo;s test our code against some input. Please keep in mind that, some of those <em>invalid</em> emails are actually valid in real world, but since our regex is a simplified version, it does not accept those ones.</p>
 <div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">TestNfa</span>(<span style="color:#a6e22e">t</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">testing</span>.<span style="color:#a6e22e">T</span>) {
 </span></span><span style="display:flex;"><span>
 </span></span><span style="display:flex;"><span>	<span style="color:#66d9ef">var</span> <span style="color:#a6e22e">data</span> = []<span style="color:#66d9ef">struct</span> {
@@ -823,6 +835,7 @@ Before getting into the parsing algorithm, let&rsquo;s define some types and con
 </span></span><span style="display:flex;"><span>}
 </span></span></code></pre></div><p>All the tests pass. We&rsquo;re done.</p>
 <p>Of course, there&rsquo;s a lot to improve in the code. You can check out the Github repository for this project. While the code will not be the exact same, the ideas are the same.</p>
+<p>Cheers!</p>
 <h2 id="references">References</h2>
 <ul>
 <li><a href="https://en.wikipedia.org/wiki/Thompson%27s_construction">https://en.wikipedia.org/wiki/Thompson%27s_construction</a></li>
