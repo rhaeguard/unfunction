@@ -280,6 +280,8 @@ type grammarRule struct {
 ```
 - It's pretty simple, a rule consists of a left-hand side (lhs) and the right-hand side (rhs).
 
+And the following is the grammar:
+
 ```go
 var grammar = []grammarRule{
 	{value, [][]elementType{
@@ -356,7 +358,7 @@ Lexical analysis (or lexing, tokenization) is a process where we take a string i
 
 When parsing JSON with the recursive descent, we do not need to tokenize the input, but tokenization makes things a bit easier for us when it comes to shift-reduce parsing.
 
-Let's take a look at how lexing is done.
+Let's take a look at how lexing is done. This is the token structure that will hold the each lexed value.
 
 ```go
 type token struct {
@@ -450,6 +452,314 @@ func lex(input string) ([]token, *Error) {
 6. If we encounter the char `n`, we check if it is the start of `null`
 7. The rest of it is following the same logic. If we cannot find any match, that's an error.
 
+This is an example of what the lexer produces for the string: `{"hello": 12345}`
+
+```golang
+[
+	{<nil> { }
+	{hello <string_literal> }
+	{<nil> : } 
+	{12345 [0-9] (digits) } 
+	{<nil> } }
+]
+```
+
 ## Parsing
 
-[WIP]
+As we already know the shift-reduce parsing approach has (at least) two operations: shift and reduce. 
+
+Shifting a token simply means pushing that token to the top of the parse stack. In our table-less approach, we will only try to shift in the following cases:
+- If lookahead is a prefix of the right side of any rule.
+- If a combination of top stack elements and the lookahead is a prefix of the right side of any rule.
+
+There's a case, however, in which the combination might have a complete match, not just prefix:
+- If the full match is the only match, we shift and reduce afterwards
+- If there are potentially longer matches than the full match, we only shift as shown above
+
+Reducing operates on the elements at the top of the stacks. If the elements line up in a certain way that match the right hand side of a rule completely, then those elements are popped off the stack and replaced with the left-hand side of that rule.
+
+In shift-reduce, we try to maximize the amount of elements we reduce. This is the reason why we will shift the tokens if there's a prefix match which simply means that we can potentially reduce a longer rule. If we just cannot find any match, we do not shift, we try to reduce first, and then try with the same token to see if it matches with anything, given a reduce is performed. Finally, if we cannot perform neither shift nor reduce, that's an error.
+
+Let's actually see this in action before we introduce the code. Let's take the grammar we saw earlier.
+
+1. E → E * B
+2. E → E + B
+3. E → B
+4. B → 0
+5. B → 1
+
+and let's parse `1+1` with it
+
+{{<raw_html>}}
+
+<table>
+	<thead>
+		<tr>
+			<th>parse stack</th>
+			<th>lookahead</th>
+			<th>tokens</th>
+			<th>explanation</th>
+		</tr>
+	</thead>
+		<tr>
+			<td>[]</td>
+			<td>1</td>
+			<td>+ 1</td>
+			<td>nothing parsed yet, lookahead is 1</td>
+		</tr>
+		<tr>
+			<td>[1]</td>
+			<td></td>
+			<td>+ 1</td>
+			<td>1 completely matches with rule 5, so we shift</td>
+		</tr>
+		<tr>
+			<td>[B]</td>
+			<td></td>
+			<td>+ 1</td>
+			<td>reduce 1 -> B by following rule 5</td>
+		</tr>
+		<tr>
+			<td>[B]</td>
+			<td>+</td>
+			<td>1</td>
+			<td>
+				neither +, nor B+ is a prefix of anything - no shifting</br>
+				reduce B -> E by rule 3
+			</td>
+		</tr>
+		<tr>
+			<td>[E]</td>
+			<td>+</td>
+			<td>1</td>
+			<td>E+ is prefix of rule 2, so we shift</td>
+		</tr>
+		<tr>
+			<td>[E+]</td>
+			<td>1</td>
+			<td></td>
+			<td>1 completely matches with rule 5, so we shift</td>
+		</tr>
+		<tr>
+			<td>[E+1]</td>
+			<td></td>
+			<td></td>
+			<td>now we have no tokens to shift, we can only reduce</td>
+		</tr>
+		<tr>
+			<td>[E+1]</td>
+			<td></td>
+			<td></td>
+			<td>reduce 1 -> B by rule 5</td>
+		</tr>
+		<tr>
+			<td>[E+B]</td>
+			<td></td>
+			<td></td>
+			<td>reduce E+B -> E by rule 2</td>
+		</tr>
+		<tr>
+			<td>[E]</td>
+			<td></td>
+			<td></td>
+			<td>done</td>
+		</tr>
+	<tbody></tbody>
+</table>
+
+{{</raw_html>}}
+
+Now that we've seen an example of how shift-reduce works, let's take a look at the code. But before that, we have a couple of really useful structs and constants:
+
+```go
+type stackElement struct {
+	value token
+	rule  *jsonElement
+}
+
+type jsonElement struct {
+	value           interface{}
+	jsonElementType elementType
+}
+
+const (
+	STRING JsonValueType = "STRING"
+	NUMBER JsonValueType = "NUMBER"
+	BOOL   JsonValueType = "BOOLEAN"
+	NULL   JsonValueType = "NULL"
+	OBJECT JsonValueType = "OBJECT"
+	ARRAY  JsonValueType = "ARRAY"
+)
+
+type JsonValue struct {
+	Value     interface{}
+	ValueType JsonValueType
+}
+```
+
+- `stackElement` holds the elements of the parse stack, it can hold either a literal token, or the left-hand side of the rule
+- `jsonElement` represents a non-terminal. It can be an integer, for example, and its value would be the digits of an integer.
+- the constants are all the potential values a JSON can have
+- `JsonValue` is a struct that simply holds a particular JSON value. It can be a number, it can be a boolean, or it can be another `JsonValue` that holds a number or an object. You get the idea.
+
+Now, finally the code (_some currently irrelevant parts have been omitted for clarity_):
+
+```go
+func Parse(input string) (JsonValue, *Error) {
+	tokens, err := lex(input) // 1
+
+	// err check (omitted)
+
+	var stack []*stackElement // 2
+
+	size := len(tokens)
+	reducePerformed := true // 3
+
+	for i := 0; i < size; {
+		lookahead := tokens[i] // 4
+
+		// 5
+		if matchType := checkIfAnyPrefixExists(stack, lookahead); matchType != noMatch {
+			i++
+			// 5-1
+			stack = append(stack, &stackElement{value: lookahead})
+
+			if matchType == partialMatch { // 5-2
+				continue
+			}
+			// 5-3
+			// full match means that there's something we can reduce now
+		} else if !reducePerformed { // 6
+			// return err (omitted)
+		}
+
+		// 7
+		if jsonElement, offset := action(stack); offset != 0 {
+			stack = stack[:len(stack)-offset] // 7-1
+			stack = append(stack, &stackElement{ // 7-2
+				rule: jsonElement,
+			})
+			reducePerformed = true // 7-3
+		} else {
+			reducePerformed = false
+		}
+	}
+
+	// 8
+	for {
+		if jsonElement, offset := action(stack); offset != 0 {
+			stack = stack[:len(stack)-offset] 
+			stack = append(stack, &stackElement{
+				rule: jsonElement,
+			})
+		} else {
+			break
+		}
+	}
+
+	// final checks and return (omitted)
+}
+```
+1. Lexing gives us the tokens to parse. `tokens` is simply an array of tokens
+2. `stack` is the parse stack
+3. `reducePerformed` keeps track of whether a reduce was performed in the previous iteration of the loop or not. Because if we cannot shift and reduce, then that's an error.
+4. We get the current lookahead. Lookahead is simply a `token`
+5. We will examine `checkIfAnyPrefixExists` function soon, but for now all we need to know is that it returns a value that's one of: `noMatch, partialMatch, fullMatch`
+	1. In any match condition, we push the value to the stack
+	2. If it's a `partialMatch`, however, we do not reduce, we move on to the next token, because there's a chance for reducing a longer rule.
+	3. If it's a `fullMatch`, we move on to reducing
+6. If we couldn't shift anything and we didn't reduce in the previous step, that's an error.
+7. We will examine `action` function soon, but for now all we need to know is that it performs the reductions if there are any. `offset` is the number of elements we need to remove off the top of the stack. If it is `0`, it simply means no reduction was possible. 
+	1. We remove the necessary number of elements from the parse stack
+	2. We push the new element to the stack.
+	3. We set the flag to true to indicate that a reduction was performed
+8. Once we exhaust all the tokens, we try to repeatedly apply reduction until it is not possible. 
+
+
+We will see how we will extract the final deserialized Json object from the stack in the next couple of paragraphs. But let's start talking about the functions we glossed over first, namely, `checkIfAnyPrefixExists` and `action`.
+
+```go
+func checkIfAnyPrefixExists(stack []*stackElement, lookahead token) prefixMatch {
+	var elems []elementType // 1
+
+	stackSize := len(stack)
+	if stackSize >= 2 { // 2
+		elems = append(elems, stackToToken(stack[stackSize-2:])...)
+	} else if stackSize == 1 { // 3
+		elems = append(elems, stackToToken(stack[0:1])...)
+	}
+
+	elems = append(elems, lookahead.tokenType) // 4
+
+	size := len(elems)
+	for i := size - 1; i >= 0; i-- { // 5
+		// 6
+		if matchType := checkPrefix(elems[i:size]...); matchType != noMatch {
+			return matchType
+		}
+	}
+
+	return noMatch // 7
+}
+```
+0. The basic idea is that we want to try out different combinations of the top 2 stack elements and the lookahead to see if they match with any rule. The reason why the max combination length is 3 (2 stack elements + 1 lookahead) is because that's the max length of the right hand side expansion of any rule in our Json grammar.
+1. `elems` holds all the elements from the stack
+2. If stack has more than 2 elements, we can simply pick the last 2
+3. If stack has exactly 1 element, we simply pick that element
+4. Finally we also add the lookahead to the mix
+5. We check the combinations in the following way:
+	1. Assume `elems` is `[s1 s2 la]`
+	2. We wil check `[la]` first
+	3. We will check `[s2 la]` next
+	4. We will finally check `[s1 s2 la]`
+6. If there's any match, we will return that match.
+7. If no match is found, we return `noMatch`
+
+We will skip over `stackToToken` and `checkPrefix` functions, but you're welcome to check them out on the Github repository.
+
+Let's move on to the `action` function.
+
+```go
+func action(stack []*stackElement) (*jsonElement, int) {
+	stackSize := len(stack)
+
+	// 1
+	var je *jsonElement
+	var offset int
+
+	for _, rule := range grammar { // 2
+		for _, production := range rule.rhs { // 3
+			size := len(production)
+			if size > stackSize { // 4
+				continue
+			}
+			actual := topNOfStack(stack, size) // 5
+			matches := compare(production, actual) // 6
+			if matches && size > offset { // 7
+				je = &jsonElement{
+					// 8
+					value:           rule.toJson(stack[len(stack)-size:]...),
+					// 9
+					jsonElementType: rule.lhs,
+				}
+				offset = size // 10
+			}
+		}
+	}
+
+	return je, offset // 11
+}
+```
+
+1. These are the values we will set and return
+2. Go over each rule in the grammar
+3. Go over each production of each rule
+4. If the production is longer than the stack itself, skip that rule
+5. Take the required number of elements off the top of the stack.
+6. Compare the actual stack elements with the production elements
+7. If there's a match, and the rule is bigger than the previously matched rule, set the values
+8. `toJson` is a new field added to the `grammarRule` struct which simply creates a `JsonValue` for us, otherwise we would simply lose the parsed value.
+9. Type of the jsonElement is the left-hand side of the rule. This means that if the matching combination was: `[ltSign, ltDigit]`, the `jsonElementType` will be `integer`.
+10. Update the offset to the new, bigger size.
+11. Return the values.
+
