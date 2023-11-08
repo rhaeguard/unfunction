@@ -469,8 +469,8 @@ This is an example of what the lexer produces for the string: `{"hello": 12345}`
 As we already know the shift-reduce parsing approach has (at least) two operations: shift and reduce. 
 
 Shifting a token simply means pushing that token to the top of the parse stack. In our table-less approach, we will only try to shift in the following cases:
-- If lookahead is a prefix of the right side of any rule.
-- If a combination of top stack elements and the lookahead is a prefix of the right side of any rule.
+- If lookahead is a prefix of the right hand side of any rule.
+- If a combination of top stack elements and the lookahead is a prefix of the right hand side of any rule.
 
 There's a case, however, in which the combination might have a complete match, not just prefix:
 - If the full match is the only match, we shift and reduce afterwards
@@ -478,7 +478,7 @@ There's a case, however, in which the combination might have a complete match, n
 
 Reducing operates on the elements at the top of the stacks. If the elements line up in a certain way that match the right hand side of a rule completely, then those elements are popped off the stack and replaced with the left-hand side of that rule.
 
-In shift-reduce, we try to maximize the amount of elements we reduce. This is the reason why we will shift the tokens if there's a prefix match which simply means that we can potentially reduce a longer rule. If we just cannot find any match, we do not shift, we try to reduce first, and then try with the same token to see if it matches with anything, given a reduce is performed. Finally, if we cannot perform neither shift nor reduce, that's an error.
+In shift-reduce, we try to maximize the amount of elements we reduce in one iteration. This is the reason why we will shift the tokens if there's a prefix match which simply means that we can potentially reduce a longer rule. If we just cannot find any match, we do not shift, we try to reduce first, and then try with the same token to see if it matches with anything, given a reduce is performed. Finally, if we cannot perform neither shift nor reduce, that's an error.
 
 Let's actually see this in action before we introduce the code. Let's take the grammar we saw earlier.
 
@@ -497,7 +497,7 @@ and let's parse `1+1` with it
 		<tr>
 			<th>parse stack</th>
 			<th>lookahead</th>
-			<th>tokens</th>
+			<th>unparsed tokens</th>
 			<th>explanation</th>
 		</tr>
 	</thead>
@@ -511,7 +511,7 @@ and let's parse `1+1` with it
 			<td>[1]</td>
 			<td></td>
 			<td>+ 1</td>
-			<td>1 completely matches with rule 5, so we shift</td>
+			<td>1 completely matches with rule 5, so we shift and we'll reduce next</td>
 		</tr>
 		<tr>
 			<td>[B]</td>
@@ -538,13 +538,7 @@ and let's parse `1+1` with it
 			<td>[E+]</td>
 			<td>1</td>
 			<td></td>
-			<td>1 completely matches with rule 5, so we shift</td>
-		</tr>
-		<tr>
-			<td>[E+1]</td>
-			<td></td>
-			<td></td>
-			<td>now we have no tokens to shift, we can only reduce</td>
+			<td>1 completely matches with rule 5, so we shift and we'll reduce next</td>
 		</tr>
 		<tr>
 			<td>[E+1]</td>
@@ -569,7 +563,7 @@ and let's parse `1+1` with it
 
 {{</raw_html>}}
 
-Now that we've seen an example of how shift-reduce works, let's take a look at the code. But before that, we have a couple of really useful structs and constants:
+Now that we've seen an example of how shift-reduce works, let's take a look at the code. But before that, we have a couple of useful structs and constants:
 
 ```go
 type stackElement struct {
@@ -597,9 +591,9 @@ type JsonValue struct {
 }
 ```
 
-- `stackElement` holds the elements of the parse stack, it can hold either a literal token, or the left-hand side of the rule
+- `stackElement` holds the elements of the parse stack, it can hold either a literal token (_terminal_), or the left-hand side of the rule (_non-terminal_)
 - `jsonElement` represents a non-terminal. It can be an integer, for example, and its value would be the digits of an integer.
-- the constants are all the potential values a JSON can have
+- the constants are all the potential types of values a JSON can have
 - `JsonValue` is a struct that simply holds a particular JSON value. It can be a number, it can be a boolean, or it can be another `JsonValue` that holds a number or an object. You get the idea.
 
 Now, finally the code (_some currently irrelevant parts have been omitted for clarity_):
@@ -657,7 +651,18 @@ func Parse(input string) (JsonValue, *Error) {
 		}
 	}
 
-	// final checks and return (omitted)
+	// 9-1
+	if len(stack) != 1 {
+		return JsonValue{}, newError(-1, "parsing failed...")
+	}
+
+	// 9-2
+	values := stack[0].rule.value.(JsonValue).Value.([]JsonValue)
+	if len(values) != 1 {
+		return JsonValue{}, newError(-1, "parsing failed...")
+	}
+
+	return values[0], nil
 }
 ```
 1. Lexing gives us the tokens to parse. `tokens` is simply an array of tokens
@@ -670,10 +675,18 @@ func Parse(input string) (JsonValue, *Error) {
 	3. If it's a `fullMatch`, we move on to reducing
 6. If we couldn't shift anything and we didn't reduce in the previous step, that's an error.
 7. We will examine `action` function soon, but for now all we need to know is that it performs the reductions if there are any. `offset` is the number of elements we need to remove off the top of the stack. If it is `0`, it simply means no reduction was possible. 
-	1. We remove the necessary number of elements from the parse stack
+	1. We remove the necessary number of elements from the parse stack.
 	2. We push the new element to the stack.
-	3. We set the flag to true to indicate that a reduction was performed
+	3. We set the flag to true to indicate that a reduction was performed.
 8. Once we exhaust all the tokens, we try to repeatedly apply reduction until it is not possible. 
+9. At the end of the parsing, our stack should only contain one element. This is because our JSON grammar can be reduced to a single rule.
+	1. Checking to see if we have indeed one element in the parse stack.
+	2. This line looks complicated, and a lot of casting is going on. To completely understand what's going on, we need to know what `toJson` function does which hasn't been introduced yet. So, it'd be a better idea to come back here once you read the corresponding section. Here's what happens:
+		- In the case of successful parsing, no matter if we have an object, array, boolean, etc., these are reduced to `value` rule.
+		- However, if we take a look at the grammar. We see that the `value` itself is a part of `element` which itself is a part of `elements`. So, at the end, the actual parsed value is inside the JSON array. That's why we need these long casts.
+		- `stack[0].rule.value.(JsonValue)` takes the only element of the stack, extracts the value and casts it to `JsonValue` because the struct we used to store values in our parse stack is generic.
+		- The type of this new parsed object is `ARRAY` and it's `Value` is a `[]JsonValue`. So, `.Value.([]JsonValue)` this gives us the whole array
+		- Then, after the size check to make sure we have indeed 1 element, we extract that one parsed JSON value.
 
 
 We will see how we will extract the final deserialized Json object from the stack in the next couple of paragraphs. But let's start talking about the functions we glossed over first, namely, `checkIfAnyPrefixExists` and `action`.
@@ -712,7 +725,7 @@ func checkIfAnyPrefixExists(stack []*stackElement, lookahead token) prefixMatch 
 	2. We wil check `[la]` first
 	3. We will check `[s2 la]` next
 	4. We will finally check `[s1 s2 la]`
-6. If there's any match, we will return that match.
+6. If there's any match, we will return the type of that match.
 7. If no match is found, we return `noMatch`
 
 We will skip over `stackToToken` and `checkPrefix` functions, but you're welcome to check them out on the Github repository.
@@ -758,8 +771,184 @@ func action(stack []*stackElement) (*jsonElement, int) {
 5. Take the required number of elements off the top of the stack.
 6. Compare the actual stack elements with the production elements
 7. If there's a match, and the rule is bigger than the previously matched rule, set the values
-8. `toJson` is a new field added to the `grammarRule` struct which simply creates a `JsonValue` for us, otherwise we would simply lose the parsed value.
-9. Type of the jsonElement is the left-hand side of the rule. This means that if the matching combination was: `[ltSign, ltDigit]`, the `jsonElementType` will be `integer`.
+8. `toJson` is a new field added to the `grammarRule` struct which simply creates a `JsonValue` for us, otherwise we would simply lose the parsed value. We'll take a look at how it works in a bit.
+9. The type of the `jsonElement` is the left-hand side of the rule. This means that if the matching combination was: `[ltSign, ltDigit]`, the `jsonElementType` will be `integer` (_this rule exists in the grammar shared above_).
 10. Update the offset to the new, bigger size.
 11. Return the values.
 
+After putting together all the functions we've described, we are going to be able to create a parse tree, but we will not be able to preserve the actual values of the JSON. We need to keep track of the actual values while building up the tree. That's where `toJson` function comes in. Let's start by checking the signature:
+
+```go
+type grammarRule struct {
+	lhs    string
+	rhs    [][]elementType
+	toJson func(values ...*stackElement) JsonValue
+}
+```
+- It will take some stack elements. These elements will be the ones that have matched in the `action` step (refer to #8 in `action` function above).
+- Given those matched elements, it will try constructing the appropriate `JsonValue`.
+- Each grammar entry will have a different strategy for generating the `JsonValue`.
+
+Let's take a look at an example:
+
+```go
+grammarRule{integer, [][]elementType{
+	{ltDigits},
+	{ltSign, ltDigits},
+}, func(values ...*stackElement) JsonValue {
+	size := len(values)
+	digits := values[size-1] // 1
+	var sign uint8 = '+' // 2
+	if size == 2 { // 3
+		sign = values[0].Value().(uint8) // - or +
+	}
+	v := fmt.Sprintf("%c%s", sign, digits.Value()) // 4
+	// 5
+	return JsonValue{
+		Value:     v,
+		ValueType: NUMBER,
+	}
+}},
+```
+1. The `integer` rule has two productions. The last element of both productions is the digits. 
+2. An integer might have a sign, so the default value for sign is `+`.
+3. If `values` has two elements, it means we have found a match for the second production rule: `{ltSign, ltDigits}`, so we will try to extract the value of that stack entry.
+4. We create the integer string. We will have values such as `+2` or `-10`
+5. Return the created `JsonValue`
+
+`integer` is a part of a bigger rule which is `number`. `number` has two more components which are `fraction` and `exponent`. Let's take a look at each and finally how they are all put together.
+
+```go
+grammarRule{fraction, [][]elementType{
+	{ltFractionSymbol, ltDigits},
+}, func(values ...*stackElement) JsonValue {
+	// 1
+	var fractionDigits = fmt.Sprintf(".%s", values[1].Value())
+
+	return JsonValue{
+		Value:     fractionDigits,
+		ValueType: NUMBER,
+	}
+}},
+
+grammarRule{exponent, [][]elementType{
+	{ltExponent, integer},
+}, func(values ...*stackElement) JsonValue {
+	// 2
+	var exponentExpr = fmt.Sprintf("e%s", values[1].asJsonValue().Value.(string))
+
+	return JsonValue{
+		Value:     exponentExpr,
+		ValueType: NUMBER,
+	}
+}},
+```
+0. The code for both `fraction` and `exponent` are almost the same. So, let's take a look at the difference.
+1. For `fraction`, the most important part is the `digits`, because the fraction symbol is always `.` anyway. So, we simply take the digits value, make it a string and return.
+2. For `exponent`, the most important part is the `integer`. We saw earlier what `integer` returned. The `Value` of an `integer` is a string, so we simply cast the last element to `JsonValue` (`asJsonValue` is just a helper method), and grab the string value.
+
+Now that we have all the constituents of the `number` rule. Let's see how it's all put together. It's simpler than it looks:
+
+```go
+grammarRule{number, [][]elementType{
+	{integer, fraction, exponent},
+	{integer, fraction},
+	{integer, exponent},
+	{integer},
+}, func(values ...*stackElement) JsonValue {
+	size := len(values)
+	// 1
+	var integerValue = values[0].asJsonValue().Value.(string)
+
+	// 2
+	var fraction string
+	if size >= 2 && strings.HasPrefix(values[1].asJsonValue().Value.(string), ".") {
+		fraction = values[1].asJsonValue().Value.(string)
+	} else {
+		fraction = ""
+	}
+
+	// 3
+	var exponent string
+	if size == 2 && strings.HasPrefix(values[1].asJsonValue().Value.(string), "e") {
+		exponent = values[1].asJsonValue().Value.(string)
+	} else if size == 3 && strings.HasPrefix(values[2].asJsonValue().Value.(string), "e") {
+		exponent = values[2].asJsonValue().Value.(string)
+	} else {
+		exponent = ""
+	}
+	
+	// 4
+	expression := fmt.Sprintf("%s%s%s", integerValue, fraction, exponent)
+	// 5
+	value, err := strconv.ParseFloat(expression, 64) // TODO: potential for an error!
+
+	if err != nil {
+		fmt.Printf("%s\n", err.Error())
+	}
+
+	// 6
+	return JsonValue{
+		Value:     value,
+		ValueType: NUMBER,
+	}
+}},
+```
+1. From the production rules, we know that the first element is always `integer`. So, we grab the value as string
+2. `fraction` may or or may not be the second element. So, if it is, we save the value to the `fraction` variable.
+3. `exponent` can be the second or the third element, or non-existent. So, based on these cases, we try to grab the string value and save it to `exponent` variable
+4. The format for the final expression is: `<integer><fraction><exponent>`. Keep in mind that `fraction` and `exponent` can be empty.
+5. With the help of golang's `strconv.ParseFloat` method, we parse the expression to a numeric value. All the numeric values will be in `float64` type.
+6. Return the number.
+
+There are a lot more `toJson` implementations that we did not cover, but the logic is the same across all. Take the passed `values` argument and based on the known grammar rules, try to create the target `JsonValue` object. Feel free to check out the Github repository for the full implementation.
+
+That's technically it! We now have a working shift-reduce parser. Let's take a look at a test to get a better understanding of the input and the output.
+
+```go
+func TestParse(t *testing.T) {
+	var inputJson = `{
+    "value": [
+        1239,
+        123.45
+    ],
+    "name": "renault",
+    "token": true,
+    "hello": null
+}`
+	t.Run("check json", func(t *testing.T) {
+		json, err := Parse(inputJson)
+		if err != nil {
+			t.Fatalf("%s", err.Error())
+		}
+		expected := JsonValue{
+			ValueType: OBJECT,
+			Value: map[string]JsonValue{
+				"value": {
+					ValueType: ARRAY,
+					Value: []JsonValue{
+						{ValueType: NUMBER, Value: float64(1239)},
+						{ValueType: NUMBER, Value: float64(123.45)},
+					},
+				},
+				"name": {
+					ValueType: STRING,
+					Value:     "renault",
+				},
+				"token": {
+					ValueType: BOOL,
+					Value:     true,
+				},
+				"hello": {
+					ValueType: NULL,
+					Value:     nil,
+				},
+			},
+		}
+
+		if !reflect.DeepEqual(json, expected) {
+			t.Fail()
+		}
+	})
+}
+```
