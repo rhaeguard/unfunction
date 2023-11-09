@@ -63,6 +63,16 @@
       }
     }
   }
+
+  table{
+    thead, th {
+      background-color: $--gh-tool-header-color;
+      color: $--gh-tool-text-color;
+    }
+    tbody {
+      background-color: $--gh-tool-body-color;
+    }
+  }
 }
 
 @mixin dark-appearance {
