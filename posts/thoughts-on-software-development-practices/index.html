@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en-us"><head>
+  <meta charset="utf-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+   <meta name="description" content="These are some of my random thoughts on software development pratices. These are not facts, these are opinions.
+Vertical scaling is probably fine for your use case, don&rsquo;t be obsessed with horizontal scaling. Performance matters, and it matters much more than you think. Software security matters. Give visual feedback on any action the user performs in the UI. Do not generalize off of a single use case. You can literally fit an infinite number of lines through a single point.">  
+
+  <title>
+    
+      Thoughts on Software Development Pratices
+    
+  </title>
+
+
+  
+  <link rel="icon" type="image/png" sizes="16x16" href="/favicon.png">
+  
+  
+  
+  <link rel="stylesheet" href="/css/main.f90880d98a1026733d00943503646c0850de9d6ffb49094838d1431c2c1900789de848327244290e7ae861e9f7a334939eef895c95b1064d99902fdac08beee8.css" integrity="sha512-&#43;QiA2YoQJnM9AJQ1A2RsCFDenW/7SQlIONFDHCwZAHid6EgyckQpDnroYen3ozSTnu&#43;JXJWxBk2ZkC/awIvu6A==" />
+  
+</head>
+<body a="light">
+        <main class="page-content" aria-label="Content">
+            <div class="w">
+<a href="/">home</a>
+<button class="theme-switch">dark</button>
+
+
+<article>
+    <p class="post-meta">
+        <time datetime="2024-07-16 04:18:33 -0600 -0600">
+            2024-07-16
+        </time>
+    </p>
+
+    <h1>Thoughts on Software Development Pratices</h1>
+
+    
+        <div class="link-preview">
+            <div class="header">Github Repository</div>
+            <div class="body">
+                <a href="https://github.com/rhaeguard" target="_blank">rhaeguard</a>
+            </div>
+        </div>
+    
+
+    
+
+    <p>These are some of my random thoughts on software development pratices. These are not facts, these are opinions.</p>
+<ol>
+<li><a href="https://en.wikipedia.org/wiki/Scalability#Vertical_or_scale_up">Vertical scaling</a> is probably fine for your use case, don&rsquo;t be obsessed with <a href="https://en.wikipedia.org/wiki/Scalability#Horizontal_or_scale_out">horizontal scaling</a>.</li>
+<li>Performance matters, and it matters much more than you think.</li>
+<li>Software security matters.</li>
+<li>Give visual feedback on any action the user performs in the UI.</li>
+<li>Do not generalize off of a single use case. You can literally fit an infinite number of lines through a single point.</li>
+<li>Sometimes code duplication is okay.</li>
+<li>Old ideas get ressurrected every 10 years or so (SSR, SOAP/RPC/GraphQL) therefore do not fixate on the new and shiny, but do keep up with the trends. Just because a random guy on the internet said jQuery or PHP is bad, doesn&rsquo;t mean it is bad.</li>
+<li>Do not overengineer. If a boolean flag works fine in the current use case, use that. &ldquo;Futureproofing&rdquo; is a good concept but it often fails to deliver what it promises. Do not try to solve a problem that does not exist.</li>
+<li>Learn how to use development tools properly. These include: IDEs, profilers, static analysis tools, perf testing tools, etc. and of course the AI assistants.</li>
+<li>Test with real data. Mocking should/will never give you confidence to push things to production. Unit testing is important, but a unit does not mean a single function. Test the use cases: user login, purchase, refund, etc.</li>
+<li>Be a generalist, learn the fundamentals. Nothing can replace a proper Computer Science knowledge a university undergrad study provides you.</li>
+<li>Be open to ideas. Software Engineering is a fast moving field. It will have a lot of hyped up trends that you shouldn&rsquo;t spend time on as long as it isn&rsquo;t your job (and big corporations love hype trains), but it will also have really interesting and useful ideas. Keep an eye out for those. With experience you will learn what is fad and what&rsquo;s real deal.</li>
+<li>If multiple solutions are possible, benchmark the performance (or whatever metric is relevant) to decide which one to choose. Data-driven decisions should be preferred over intuition whenever possible.</li>
+<li>Have a pre-recorded demo ready for your presentations; demo gods are often cruel. If you&rsquo;re presenting over Zoom, do not have transition animations.</li>
+<li>Stop bikeshedding around variable naming, function naming, cases, language choices, formatting, etc. When working in a team, pick a style and stick to that, or if the team is already using one, use that.</li>
+<li>Usually a series of ifs or switch cases are better than inheritance. The problems people mention about conditionals is often overblown. Inheritance introduces way more bloat for simple use cases. It absolutely has its own time and place. &ldquo;Composition over inheritance&rdquo; is actually a good advice.</li>
+<li>You do not need to introduce a whole new library/dependency to calculate something like the <a href="https://en.wikipedia.org/wiki/Levenshtein_distance">Levenshtein distance</a>.</li>
+</ol>
+
+</article>
+
+            </div>
+        </main>
+    </body><script>
+    const themeVal = localStorage.getItem("isDark") || document.getElementsByTagName("body")[0].getAttribute("a")
+    document.getElementsByTagName("body")[0].setAttribute("a", themeVal)
+    const btns = document.getElementsByClassName('theme-switch')
+    for (let btn of btns) {
+        btn.innerHTML = themeVal === "dark" ? "light" : "dark"
+        btn.addEventListener('click', (event) => {
+            const theme = localStorage.getItem("isDark") || document.getElementsByTagName("body")[0].getAttribute("a")
+            const isDark = theme === "dark"
+            document.getElementsByTagName("body")[0].setAttribute("a", isDark ? "light" : "dark")
+            localStorage.setItem("isDark", isDark ? "light" : "dark")
+            btn.innerHTML = isDark ? "dark" : "light"
+        })
+    }
+</script></html>

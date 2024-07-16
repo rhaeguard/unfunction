@@ -2,10 +2,16 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
   xmlns:xhtml="http://www.w3.org/1999/xhtml">
   <url>
-    <loc>https://rhaeguard.github.io/posts/json-parsing-shift-reduce/</loc>
-    <lastmod>2023-11-09T01:12:33-06:00</lastmod>
-  </url><url>
     <loc>https://rhaeguard.github.io/posts/</loc>
+    <lastmod>2024-07-16T04:18:33-06:00</lastmod>
+  </url><url>
+    <loc>https://rhaeguard.github.io/posts/thoughts-on-software-development-practices/</loc>
+    <lastmod>2024-07-16T04:18:33-06:00</lastmod>
+  </url><url>
+    <loc>https://rhaeguard.github.io/posts/learning-by-association/</loc>
+    <lastmod>2024-07-16T03:03:33-06:00</lastmod>
+  </url><url>
+    <loc>https://rhaeguard.github.io/posts/json-parsing-shift-reduce/</loc>
     <lastmod>2023-11-09T01:12:33-06:00</lastmod>
   </url><url>
     <loc>https://rhaeguard.github.io/posts/regex/</loc>
