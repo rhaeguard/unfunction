@@ -1,5 +1,32 @@
 [[entries]]
+title = "some cool side projects"
+
+[[entries.entries]]
+title = "visualizations with canvas api"
+url = "https://rhaeguard.github.io/visualizations/"
+
+[[entries.entries]]
+title = "phont - rendering ttf fonts from scratch"
+url = "https://github.com/rhaeguard/phont"
+
+[[entries.entries]]
+title = "rgx - a tiny regex engine"
+url = "https://github.com/rhaeguard/rgx"
+
+[[entries.entries]]
+title = "shum - a concatenative language for jvm"
+url = "https://github.com/rhaeguard/shum"
+
+[[entries.entries]]
+title = "snake - a snake game with procedurally-generated maps"
+url = "https://github.com/rhaeguard/snake"
+
+[[entries.entries]]
+title = "cells - a spreadsheet with lisp-like formulas"
+url = "https://github.com/rhaeguard/cells"
+
+[[entries]]
 title = "all posts"
 
-  [entries.post_list]
-  show_more = false
+[entries.post_list]
+show_more = true
