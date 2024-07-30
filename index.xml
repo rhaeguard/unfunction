@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8" standalone="yes"?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
-    <title>unfunction</title>
+    <title>rhaeguard&#39;s stuff</title>
     <link>https://rhaeguard.github.io/</link>
-    <description>Recent content on unfunction</description>
+    <description>Recent content on rhaeguard&#39;s stuff</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
     <lastBuildDate>Thu, 25 Aug 2022 21:30:04 +0800</lastBuildDate><atom:link href="https://rhaeguard.github.io/index.xml" rel="self" type="application/rss+xml" />
@@ -13,8 +13,8 @@
       <pubDate>Tue, 16 Jul 2024 04:18:33 -0600</pubDate>
       
       <guid>https://rhaeguard.github.io/posts/thoughts-on-software-development-practices/</guid>
-      <description>These are some of my random thoughts on software development pratices. These are not facts, these are opinions.
-Vertical scaling is probably fine for your use case, don&amp;rsquo;t be obsessed with horizontal scaling. Performance matters, and it matters much more than you think. Software security matters. Give visual feedback on any action the user performs in the UI. Do not generalize off of a single use case. You can literally fit an infinite number of lines through a single point.</description>
+      <description>These are some of my random thoughts on software development pratices. These are not facts, these are opinions. I reckon you most likely have seen or heard some or all of these at some point.
+Vertical scaling is probably fine for your use case, don&amp;rsquo;t be obsessed with horizontal scaling. The monolith is fine. Performance matters, and it matters much more than you think. Software security should not be an afterthought.</description>
     </item>
     
     <item>
