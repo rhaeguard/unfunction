@@ -2,7 +2,6 @@
 title = 'Learning by association'
 date = 2024-07-16T03:03:33-06:00
 draft = false
-github = 'rhaeguard'
 +++
 
 I have a method/strategy that I use to remember things. It is called _associative learning_ which is when one stimulus can trigger another one. Like [the experiment](https://en.wikipedia.org/wiki/Classical_conditioning) Ivan Pavlov performed where the dog was conditioned to associate food with sound. 
