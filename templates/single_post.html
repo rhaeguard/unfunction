@@ -1,5 +1,5 @@
 <main class="page-content">
-    <div class="w">
+    <div class="wain">
         <a href="/">home</a>
         <button class="theme-switch">dark</button>
         <article>
@@ -8,6 +8,8 @@
                     {{date}}
                 </time>
             </p>
+
+            <h1>{{title}}</h1>
             
             {{exists:github}}
             <div class="link-preview">
@@ -17,8 +19,6 @@
                 </div>
             </div>
             {{exists:github:end}}
-
-            <h1>{{title}}</h1>
 
             {{CONTENT}}
         </article>

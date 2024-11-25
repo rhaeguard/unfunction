@@ -9,6 +9,7 @@ import re
 from pygments import highlight
 from pygments.lexers import get_lexer_by_name
 from pygments.formatters import HtmlFormatter
+from PIL import Image
 
 MARKDOWN = markdown.Markdown(extensions=["fenced_code", "sane_lists"])
 PYGMENTS_HTML_FORMATTER = HtmlFormatter(style="monokai")
@@ -79,9 +80,9 @@ def conditional_render(variable_exists):
 # build the files
 for markdown_file in glob.glob("./content/posts/*.md"):
     filename = pathlib.Path(markdown_file).name[:-3]
-    os.makedirs(f"./build/{filename}", exist_ok=True)
+    os.makedirs(f"./build/posts/{filename}", exist_ok=True)
     with open(markdown_file, encoding="utf-8") as f, open(
-        f"./build/{filename}/index.html", "w+", encoding="utf-8"
+        f"./build/posts/{filename}/index.html", "w+", encoding="utf-8"
     ) as o:
         out_html = MARKDOWN.convert(f.read())
 
@@ -106,6 +107,8 @@ for markdown_file in glob.glob("./content/posts/*.md"):
         out_html = HTML_TEMPLATE.replace("{{CONTENT}}", out_html)
 
         for key, value in post_metadata.items():
+            if key == "date":
+                value = value[:value.find("T")]
             out_html = out_html.replace(f"{{{{{key}}}}}", value)
 
         for cvar in conditional_variables:
@@ -118,18 +121,21 @@ for markdown_file in glob.glob("./content/posts/*.md"):
 # move the static assets
 for file in glob.glob("./static/*"):
     filename = pathlib.Path(file).name
-    shutil.copy2(file, f"./build/{filename}")
+    if filename.endswith(".png"):
+        img = Image.open(file)
+        img.save(f"./build/{filename}", optimize=True)
+    # shutil.copy2(file, f"./build/{filename}")
 
 
 def build_posts(all_posts):
     output = "<ul>"
     for post in all_posts:
-        filename = post["filename"]
+        filename = f'/posts/{post["filename"]}'
         title = post["title"]
         date = post["date"]
         date = datetime.strptime(date, "%Y-%m-%dT%H:%M:%S%z").date()
         is_draft = post["draft"]
-        if not is_draft:
+        if is_draft == 'false':
             output += f'<li><span>{date}</span>&nbsp;<a href="{filename}">{title}</a></li>'
     output += "</ul>"
     return output
