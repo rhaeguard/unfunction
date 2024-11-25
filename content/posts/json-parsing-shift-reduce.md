@@ -2,6 +2,7 @@
 title=How to parse JSON using shift-reduce parsing approach
 date=2023-11-09T01:12:33-06:00
 draft=false
+github=rhaeguard
 -->
 
 Parsing JSON is something that the majority of programmers have done. Almost all languages have means to deserialize (unmarshall) JSON from text into some data structure. In this article, we are going to try doing exactly that.

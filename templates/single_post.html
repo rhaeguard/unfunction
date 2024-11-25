@@ -3,7 +3,23 @@
         <a href="/">home</a>
         <button class="theme-switch">dark</button>
         <article>
-            <h1>{{TITLE}}</h1>
+            <p class="post-meta">
+                <time datetime="{{date}}">
+                    {{date}}
+                </time>
+            </p>
+            
+            {{exists:github}}
+            <div class="link-preview">
+                <div class="header">Github Repository</div>
+                <div class="body">
+                    <a href="https://github.com/{{github}}" target="_blank">{{github}}</a>
+                </div>
+            </div>
+            {{exists:github:end}}
+
+            <h1>{{title}}</h1>
+
             {{CONTENT}}
         </article>
     </div>
