@@ -28,6 +28,7 @@ jobs:
       - name: Build + Deploy
         if: github.ref == 'refs/heads/new-engine'
         run: |
+          ls -la
           cd ${RUNNER_TEMP}
           python main.py
           cp -R build/* ${GITHUB_WORKSPACE}/built-site/
