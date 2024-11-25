@@ -1,0 +1,879 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How to build a regex engine from scratch</title>
+    <link rel="stylesheet" href="/main.css">
+</head>
+<body>
+
+<main class="page-content">
+    <div class="wain">
+        <a href="/">home</a>
+        <button class="theme-switch">dark</button>
+        <article>
+            <p class="post-meta">
+                <time datetime="2023-10-07">
+                    2023-10-07
+                </time>
+            </p>
+
+            <h1>How to build a regex engine from scratch</h1>
+            
+            
+            <div class="link-preview">
+                <div class="header">Github Repository</div>
+                <div class="body">
+                    <a href="https://github.com/rhaeguard/rgx" target="_blank">rhaeguard/rgx</a>
+                </div>
+            </div>
+            
+
+            
+
+<p>In this article, we'll build a simple regular expression engine that will be able to use <code>[a-zA-Z][a-zA-Z0-9_.]+@[a-zA-Z0-9]+.[a-zA-Z]{2,}</code> pattern (<em><code>.</code> is used as literal instead of any character</em>) to check for the validity of email addresses. We will use Golang. The article is divided into 3 sections:</p>
+<ul>
+<li><a href="#parsing">Parsing</a></li>
+<li><a href="#building-the-state-machine">Building the state machine</a></li>
+<li><a href="#matching">Matching</a></li>
+</ul>
+<h2>Parsing</h2>
+<p>On its own, a regex string is just that --- a string. We need to transform it into something that has a structure. Such as the following:</p>
+<div class="highlight"><pre><span></span><span class="c1">// original regex string</span>
+<span class="s">&quot;[a-zA-Z0–9_]+@[a-zA-Z0–9]+.[a-zA-Z]{2,}&quot;</span>
+
+<span class="c1">// regex tokens</span>
+<span class="nx">Repeat</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="nx">infinity</span><span class="p">):</span>
+<span class="w">   </span><span class="nx">Range</span><span class="p">(</span><span class="nx">a</span><span class="p">,</span><span class="w"> </span><span class="nx">b</span><span class="p">,</span><span class="o">...</span><span class="nx">z</span><span class="p">,</span><span class="w"> </span><span class="nx">A</span><span class="p">,</span><span class="w"> </span><span class="nx">B</span><span class="p">,</span><span class="o">...</span><span class="p">,</span><span class="nx">Z</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="o">...</span><span class="p">,</span><span class="mi">9</span><span class="p">,</span><span class="nx">_</span><span class="p">)</span>
+<span class="nx">Literal</span><span class="p">(</span><span class="err">@</span><span class="p">)</span>
+<span class="nx">Repeat</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="nx">infinity</span><span class="p">):</span>
+<span class="w">   </span><span class="nx">Range</span><span class="p">(</span><span class="nx">a</span><span class="p">,</span><span class="w"> </span><span class="nx">b</span><span class="p">,</span><span class="o">...</span><span class="nx">z</span><span class="p">,</span><span class="w"> </span><span class="nx">A</span><span class="p">,</span><span class="w"> </span><span class="nx">B</span><span class="p">,</span><span class="o">...</span><span class="p">,</span><span class="nx">Z</span><span class="p">,</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span><span class="o">...</span><span class="p">,</span><span class="mi">9</span><span class="p">)</span>
+<span class="nx">Literal</span><span class="p">(.)</span>
+<span class="nx">Repeat</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span><span class="w"> </span><span class="nx">infinity</span><span class="p">):</span>
+<span class="w">   </span><span class="nx">Range</span><span class="p">(</span><span class="nx">a</span><span class="p">,</span><span class="w"> </span><span class="nx">b</span><span class="p">,</span><span class="o">...</span><span class="nx">z</span><span class="p">,</span><span class="w"> </span><span class="nx">A</span><span class="p">,</span><span class="w"> </span><span class="nx">B</span><span class="p">,</span><span class="o">...</span><span class="p">,</span><span class="nx">Z</span><span class="p">)</span>
+</pre></div>
+
+<p>In this section, we'll go over the process of parsing a regex string into tokens. 
+The core idea when it comes to parsing a regex string is simple, we will look for the characters that have special meanings such as <code>* + ? () [] {}</code> etc. and will try to create tokens with the help of those characters. It'll be more clear once we start writing some code.
+Before getting into the parsing algorithm, let's define some types and constants.</p>
+<div class="highlight"><pre><span></span><span class="kd">type</span><span class="w"> </span><span class="nx">tokenType</span><span class="w"> </span><span class="kt">uint8</span><span class="w"> </span><span class="c1">// &lt;1&gt;</span>
+
+<span class="kd">const</span><span class="w"> </span><span class="p">(</span><span class="w"> </span><span class="c1">// &lt;2&gt;</span>
+<span class="w">   </span><span class="nx">group</span><span class="w">           </span><span class="nx">tokenType</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="kc">iota</span>
+<span class="w">   </span><span class="nx">bracket</span><span class="w">         </span><span class="nx">tokenType</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="kc">iota</span>
+<span class="w">   </span><span class="nx">or</span><span class="w">              </span><span class="nx">tokenType</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="kc">iota</span>
+<span class="w">   </span><span class="nx">repeat</span><span class="w">          </span><span class="nx">tokenType</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="kc">iota</span>
+<span class="w">   </span><span class="nx">literal</span><span class="w">         </span><span class="nx">tokenType</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="kc">iota</span>
+<span class="w">   </span><span class="nx">groupUncaptured</span><span class="w"> </span><span class="nx">tokenType</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="kc">iota</span>
+<span class="p">)</span>
+
+<span class="kd">type</span><span class="w"> </span><span class="nx">token</span><span class="w"> </span><span class="kd">struct</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// &lt;3&gt;</span>
+<span class="w">   </span><span class="nx">tokenType</span><span class="w"> </span><span class="nx">tokenType</span>
+<span class="w">   </span><span class="c1">// the payload required for each token will be different </span>
+<span class="w">   </span><span class="c1">// so we need to be flexible with the type</span>
+<span class="w">   </span><span class="nx">value</span><span class="w">     </span><span class="kd">interface</span><span class="p">{}</span>
+<span class="p">}</span>
+
+<span class="kd">type</span><span class="w"> </span><span class="nx">parseContext</span><span class="w"> </span><span class="kd">struct</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// &lt;4&gt;</span>
+<span class="w">   </span><span class="c1">// the index of the character we&#39;re processing</span>
+<span class="w">   </span><span class="c1">// in the regex string</span>
+<span class="w">   </span><span class="nx">pos</span><span class="w">    </span><span class="kt">int</span>
+<span class="w">   </span><span class="nx">tokens</span><span class="w"> </span><span class="p">[]</span><span class="nx">token</span>
+<span class="p">}</span>
+</pre></div>
+
+<ol>
+<li>It's just a type alias for the character type</li>
+<li>Constants for specifying the type of the token we are working with; think enums.</li>
+<li>The main token struct, it has a <em>type</em> and a <em>value</em> which can be anything depending on the given type</li>
+<li><code>parseContext</code> will help us keep track of our positions and will hold the tokens parsed so far</li>
+</ol>
+<p>Now, next is our parsing algorithm:</p>
+<div class="highlight"><pre><span></span><span class="kd">func</span><span class="w"> </span><span class="nx">parse</span><span class="p">(</span><span class="nx">regex</span><span class="w"> </span><span class="kt">string</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="nx">parseContext</span><span class="w"> </span><span class="p">{</span>
+<span class="w">   </span><span class="nx">ctx</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">parseContext</span><span class="p">{</span>
+<span class="w">      </span><span class="nx">pos</span><span class="p">:</span><span class="w">    </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">      </span><span class="nx">tokens</span><span class="p">:</span><span class="w"> </span><span class="p">[]</span><span class="nx">token</span><span class="p">{},</span>
+<span class="w">   </span><span class="p">}</span>
+<span class="w">   </span><span class="k">for</span><span class="w"> </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">pos</span><span class="w"> </span><span class="p">&lt;</span><span class="w"> </span><span class="nb">len</span><span class="p">(</span><span class="nx">regex</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nx">process</span><span class="p">(</span><span class="nx">regex</span><span class="p">,</span><span class="w"> </span><span class="nx">ctx</span><span class="p">)</span>
+<span class="w">      </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">pos</span><span class="o">++</span>
+<span class="w">   </span><span class="p">}</span>
+
+<span class="w">   </span><span class="k">return</span><span class="w"> </span><span class="nx">ctx</span>
+<span class="p">}</span>
+</pre></div>
+
+<ul>
+<li>We loop through each character and process it until we reach to the end of the regex string. </li>
+</ul>
+<p>Next, let's take a look at the <code>process</code> method. It's a bit more involved, so let's take it step by step.</p>
+<div class="highlight"><pre><span></span><span class="kd">func</span><span class="w"> </span><span class="nx">process</span><span class="p">(</span><span class="nx">regex</span><span class="w"> </span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="nx">ctx</span><span class="w"> </span><span class="o">*</span><span class="nx">parseContext</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">ch</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">regex</span><span class="p">[</span><span class="nx">ctx</span><span class="p">.</span><span class="nx">pos</span><span class="p">]</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">ch</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="sc">&#39;(&#39;</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// &lt;1&gt;</span>
+<span class="w">        </span><span class="nx">groupCtx</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">parseContext</span><span class="p">{</span>
+<span class="w">            </span><span class="nx">pos</span><span class="p">:</span><span class="w">    </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">pos</span><span class="p">,</span>
+<span class="w">            </span><span class="nx">tokens</span><span class="p">:</span><span class="w"> </span><span class="p">[]</span><span class="nx">token</span><span class="p">{},</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">        </span><span class="nx">parseGroup</span><span class="p">(</span><span class="nx">regex</span><span class="p">,</span><span class="w"> </span><span class="nx">groupCtx</span><span class="p">)</span>
+<span class="w">        </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">tokens</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nb">append</span><span class="p">(</span><span class="nx">ctx</span><span class="p">.</span><span class="nx">tokens</span><span class="p">,</span><span class="w"> </span><span class="nx">token</span><span class="p">{</span>
+<span class="w">            </span><span class="nx">tokenType</span><span class="p">:</span><span class="w"> </span><span class="nx">group</span><span class="p">,</span>
+<span class="w">            </span><span class="nx">value</span><span class="p">:</span><span class="w">     </span><span class="nx">groupCtx</span><span class="p">.</span><span class="nx">tokens</span><span class="p">,</span>
+<span class="w">        </span><span class="p">})</span>
+<span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="nx">ch</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="sc">&#39;[&#39;</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// &lt;2&gt;</span>
+<span class="w">        </span><span class="nx">parseBracket</span><span class="p">(</span><span class="nx">regex</span><span class="p">,</span><span class="w"> </span><span class="nx">ctx</span><span class="p">)</span>
+<span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="nx">ch</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="sc">&#39;|&#39;</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// &lt;3&gt;</span>
+<span class="w">        </span><span class="nx">parseOr</span><span class="p">(</span><span class="nx">regex</span><span class="p">,</span><span class="w"> </span><span class="nx">ctx</span><span class="p">)</span>
+<span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="nx">ch</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="sc">&#39;*&#39;</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">ch</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="sc">&#39;?&#39;</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">ch</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="sc">&#39;+&#39;</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// &lt;4&gt;</span>
+<span class="w">        </span><span class="nx">parseRepeat</span><span class="p">(</span><span class="nx">regex</span><span class="p">,</span><span class="w"> </span><span class="nx">ctx</span><span class="p">)</span>
+<span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="nx">ch</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="sc">&#39;{&#39;</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// &lt;5&gt;</span>
+<span class="w">        </span><span class="nx">parseRepeatSpecified</span><span class="p">(</span><span class="nx">regex</span><span class="p">,</span><span class="w"> </span><span class="nx">ctx</span><span class="p">)</span>
+<span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// &lt;6&gt;</span>
+<span class="w">        </span><span class="c1">// literal</span>
+<span class="w">        </span><span class="nx">t</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">token</span><span class="p">{</span>
+<span class="w">            </span><span class="nx">tokenType</span><span class="p">:</span><span class="w"> </span><span class="nx">literal</span><span class="p">,</span>
+<span class="w">            </span><span class="nx">value</span><span class="p">:</span><span class="w">     </span><span class="nx">ch</span><span class="p">,</span>
+<span class="w">        </span><span class="p">}</span>
+
+<span class="w">        </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">tokens</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nb">append</span><span class="p">(</span><span class="nx">ctx</span><span class="p">.</span><span class="nx">tokens</span><span class="p">,</span><span class="w"> </span><span class="nx">t</span><span class="p">)</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+
+<p>As we mentioned earlier, we try to match the characters we recognize and use them to parse tokens.</p>
+<ol>
+<li>If the current character is <code>(</code>, the opening parenthesis, we know we're dealing with a group, thus we try to parse the next couple of characters as a group.</li>
+<li>If it's <code>[</code>, the opening bracket, we know that it's a bracket expression, so we proceed accordingly.</li>
+<li>If the character is a vertical pipe - <code>|</code>, that's an Or expression (alternative). </li>
+<li>The characters <code>*</code> (Kleene's star), <code>+</code> and <code>?</code> all represent repetition. I know that <code>?</code> means optional, but in terms of repetition, it simply means that the character repeats at most once.</li>
+<li>Curly braces specify repetition as well. In fact, the previous repetition options can all be specified using braces:
+   - <code>a* == a{0,}</code>
+   - <code>a+ == a{1,}</code>
+   - <code>a? == a{0,1}</code></li>
+<li>If the character did not match with anything, we consider it as a literal. Please keep in mind that this is a simplified implementation. There are a lot of cases to consider when it comes to parsing regular expressions; for instance, 1 is a literal, but depending on the context it can actually be a part of a backreference <code>\1</code> that refers to the first captured group. Our simplified algorithm also DOES NOT consider the escape characters (which means <code>\a</code> is considered as a concatenation of two literals: <code>\</code> and <code>a</code>).</li>
+</ol>
+<p>Next, we'll examine each function defined in the above snippet. Let's start with the parsing of group expressions <strong><em>(1)</em></strong>:</p>
+<div class="highlight"><pre><span></span><span class="kd">func</span><span class="w"> </span><span class="nx">parseGroup</span><span class="p">(</span><span class="nx">regex</span><span class="w"> </span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="nx">ctx</span><span class="w"> </span><span class="o">*</span><span class="nx">parseContext</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">   </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">pos</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="c1">// get past the LPAREN (</span>
+<span class="w">   </span><span class="k">for</span><span class="w"> </span><span class="nx">regex</span><span class="p">[</span><span class="nx">ctx</span><span class="p">.</span><span class="nx">pos</span><span class="p">]</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="sc">&#39;)&#39;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nx">process</span><span class="p">(</span><span class="nx">regex</span><span class="p">,</span><span class="w"> </span><span class="nx">ctx</span><span class="p">)</span>
+<span class="w">      </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">pos</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">1</span>
+<span class="w">   </span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+
+<ul>
+<li>We process each character like we did in the <code>parse</code> method until we encounter the closing parenthesis. We will not cover the error handling in this tutorial, so we're simply not checking if the index is still within bounds. It will panic anyway. </li>
+</ul>
+<p>What about the extra code around <code>parseGroup</code> in the <code>process</code> function? What happens there? Here's the snippet:</p>
+<div class="highlight"><pre><span></span><span class="c1">// snippet from the `process` function</span>
+<span class="nx">groupCtx</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">parseContext</span><span class="p">{</span>
+<span class="w">   </span><span class="nx">pos</span><span class="p">:</span><span class="w">    </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">pos</span><span class="p">,</span>
+<span class="w">   </span><span class="nx">tokens</span><span class="p">:</span><span class="w"> </span><span class="p">[]</span><span class="nx">token</span><span class="p">{},</span>
+<span class="p">}</span>
+
+<span class="c1">// parsing</span>
+<span class="nx">parseGroup</span><span class="p">(</span><span class="nx">regex</span><span class="p">,</span><span class="w"> </span><span class="nx">groupCtx</span><span class="p">)</span>
+
+<span class="nx">ctx</span><span class="p">.</span><span class="nx">tokens</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nb">append</span><span class="p">(</span><span class="nx">ctx</span><span class="p">.</span><span class="nx">tokens</span><span class="p">,</span><span class="w"> </span><span class="nx">token</span><span class="p">{</span>
+<span class="w">   </span><span class="nx">tokenType</span><span class="p">:</span><span class="w"> </span><span class="nx">group</span><span class="p">,</span>
+<span class="w">   </span><span class="nx">value</span><span class="p">:</span><span class="w">     </span><span class="nx">groupCtx</span><span class="p">.</span><span class="nx">tokens</span><span class="p">,</span>
+<span class="p">})</span>
+</pre></div>
+
+<ul>
+<li>We create a new context specific to each group, so that we'll be able to bundle together all the tokens within a specific group without dealing with the top level context object. </li>
+<li>Once we're done parsing the group, we bundle all the parsed tokens into a new token of type <code>group</code> and append it to the global token list.</li>
+</ul>
+<p>Let's now see how we can parse bracket expressions <strong><em>(2)</em></strong>. This is the whole function, but we'll cover it step by step.</p>
+<div class="highlight"><pre><span></span><span class="kd">func</span><span class="w"> </span><span class="nx">parseBracket</span><span class="p">(</span><span class="nx">regex</span><span class="w"> </span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="nx">ctx</span><span class="w"> </span><span class="o">*</span><span class="nx">parseContext</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">pos</span><span class="o">++</span><span class="w"> </span><span class="c1">// get past the LBRACKET</span>
+<span class="w">    </span><span class="kd">var</span><span class="w"> </span><span class="nx">literals</span><span class="w"> </span><span class="p">[]</span><span class="kt">string</span>
+<span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="nx">regex</span><span class="p">[</span><span class="nx">ctx</span><span class="p">.</span><span class="nx">pos</span><span class="p">]</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="sc">&#39;]&#39;</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// &lt;1&gt;</span>
+<span class="w">        </span><span class="nx">ch</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">regex</span><span class="p">[</span><span class="nx">ctx</span><span class="p">.</span><span class="nx">pos</span><span class="p">]</span>
+
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="nx">ch</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="sc">&#39;-&#39;</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// &lt;2&gt;</span>
+<span class="w">            </span><span class="nx">next</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">regex</span><span class="p">[</span><span class="nx">ctx</span><span class="p">.</span><span class="nx">pos</span><span class="o">+</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="c1">// &lt;3-1&gt;</span>
+<span class="w">            </span><span class="nx">prev</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">literals</span><span class="p">[</span><span class="nb">len</span><span class="p">(</span><span class="nx">literals</span><span class="p">)</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span><span class="w"> </span><span class="c1">// &lt;3-1&gt;</span>
+<span class="w">            </span><span class="nx">literals</span><span class="p">[</span><span class="nb">len</span><span class="p">(</span><span class="nx">literals</span><span class="p">)</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">fmt</span><span class="p">.</span><span class="nx">Sprintf</span><span class="p">(</span><span class="s">&quot;%c%c&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">prev</span><span class="p">,</span><span class="w"> </span><span class="nx">next</span><span class="p">)</span><span class="w"> </span><span class="c1">// &lt;3-2&gt;</span>
+<span class="w">            </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">pos</span><span class="o">++</span><span class="w">  </span><span class="c1">// to consume the &#39;next&#39; char</span>
+<span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// &lt;4&gt;</span>
+<span class="w">            </span><span class="nx">literals</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nb">append</span><span class="p">(</span><span class="nx">literals</span><span class="p">,</span><span class="w"> </span><span class="nx">fmt</span><span class="p">.</span><span class="nx">Sprintf</span><span class="p">(</span><span class="s">&quot;%c&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">ch</span><span class="p">))</span>
+<span class="w">        </span><span class="p">}</span>
+
+<span class="w">        </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">pos</span><span class="o">++</span><span class="w"> </span><span class="c1">// &lt;5&gt;</span>
+<span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="nx">literalsSet</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="kd">map</span><span class="p">[</span><span class="kt">uint8</span><span class="p">]</span><span class="kt">bool</span><span class="p">{}</span>
+
+<span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="nx">_</span><span class="p">,</span><span class="w"> </span><span class="nx">l</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="k">range</span><span class="w"> </span><span class="nx">literals</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// &lt;6&gt;</span>
+<span class="w">        </span><span class="k">for</span><span class="w"> </span><span class="nx">i</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">l</span><span class="p">[</span><span class="mi">0</span><span class="p">];</span><span class="w"> </span><span class="nx">i</span><span class="w"> </span><span class="o">&lt;=</span><span class="w"> </span><span class="nx">l</span><span class="p">[</span><span class="nb">len</span><span class="p">(</span><span class="nx">l</span><span class="p">)</span><span class="o">-</span><span class="mi">1</span><span class="p">];</span><span class="w"> </span><span class="nx">i</span><span class="o">++</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// &lt;7&gt;</span>
+<span class="w">            </span><span class="nx">literalsSet</span><span class="p">[</span><span class="nx">i</span><span class="p">]</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="kc">true</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">tokens</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nb">append</span><span class="p">(</span><span class="nx">ctx</span><span class="p">.</span><span class="nx">tokens</span><span class="p">,</span><span class="w"> </span><span class="nx">token</span><span class="p">{</span><span class="w"> </span><span class="c1">// &lt;8&gt;</span>
+<span class="w">        </span><span class="nx">tokenType</span><span class="p">:</span><span class="w"> </span><span class="nx">bracket</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">value</span><span class="p">:</span><span class="w">     </span><span class="nx">literalsSet</span><span class="p">,</span>
+<span class="w">    </span><span class="p">})</span>
+<span class="p">}</span>
+</pre></div>
+
+<ol>
+<li>Similar to the way we parsed the group expression, we go through each character till we reach the closing bracket (<code>]</code>). </li>
+<li>For each character we check if it is <code>-</code> because that's the range indicator (e.g., <code>a-zK-Z2-8</code>). </li>
+<li>When it is indeed the range indicator: <ol>
+<li>We take the next character from the regex string, and the previous character from the list of literals (<em>it's the last character in that list</em>). </li>
+<li>Then we save it back to the list as 2 characters together. We could choose a different way of saving the parsed literals, but I find this to be simple and easy to understand.</li>
+</ol>
+</li>
+<li>If it's not the range indicator we consider it a single literal, and save it to the list.</li>
+<li>Move on to the next character</li>
+<li><code>literals</code> list contains both literals and ranges. But those may contain duplicates. Consider the following regex: <code>[a-me-s]</code> . There's a clear overlap between the ranges. We go over the saved values and add each literal to the <code>literalsSet</code>. By definition, sets do not contain duplicates, so that gets the job done. Since we're implementing this in Golang, we are using a map because there are no natively provided sets in Golang, and installing a library just for a set is unnecessary. </li>
+<li>Add all the characters between the first and last characters of the saved value.</li>
+<li>In single literals, this will only add the literal itself. Example: <code>b</code> will only add <code>b</code></li>
+<li>In ranges, it will add everything from the first character till the last character (inclusive). Example: <code>ad</code> will add <code>a</code>,<code>b</code>,<code>c</code>,<code>d</code></li>
+<li>Finally, once we have all the duplicates removed, we save the bracket token to our list of tokens.</li>
+</ol>
+<p>Next in line is <code>parseOr</code> which is able to parse alternations <strong><em>(3)</em></strong>.</p>
+<div class="highlight"><pre><span></span><span class="kd">func</span><span class="w"> </span><span class="nx">parseOr</span><span class="p">(</span><span class="nx">regex</span><span class="w"> </span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="nx">ctx</span><span class="w"> </span><span class="o">*</span><span class="nx">parseContext</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="c1">// &lt;1:start&gt;</span>
+<span class="w">    </span><span class="nx">rhsContext</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">parseContext</span><span class="p">{</span>
+<span class="w">        </span><span class="nx">pos</span><span class="p">:</span><span class="w">    </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">pos</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">tokens</span><span class="p">:</span><span class="w"> </span><span class="p">[]</span><span class="nx">token</span><span class="p">{},</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="nx">rhsContext</span><span class="p">.</span><span class="nx">pos</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="c1">// get past |</span>
+<span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="nx">rhsContext</span><span class="p">.</span><span class="nx">pos</span><span class="w"> </span><span class="p">&lt;</span><span class="w"> </span><span class="nb">len</span><span class="p">(</span><span class="nx">regex</span><span class="p">)</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">regex</span><span class="p">[</span><span class="nx">rhsContext</span><span class="p">.</span><span class="nx">pos</span><span class="p">]</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="sc">&#39;)&#39;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">process</span><span class="p">(</span><span class="nx">regex</span><span class="p">,</span><span class="w"> </span><span class="nx">rhsContext</span><span class="p">)</span>
+<span class="w">        </span><span class="nx">rhsContext</span><span class="p">.</span><span class="nx">pos</span><span class="w"> </span><span class="o">+=</span><span class="w"> </span><span class="mi">1</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="c1">// &lt;1:end&gt;</span>
+
+<span class="w">    </span><span class="c1">// both sides of the OR expression</span>
+<span class="w">    </span><span class="nx">left</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">token</span><span class="p">{</span>
+<span class="w">        </span><span class="nx">tokenType</span><span class="p">:</span><span class="w"> </span><span class="nx">groupUncaptured</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">value</span><span class="p">:</span><span class="w">     </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">tokens</span><span class="p">,</span><span class="w"> </span><span class="c1">// &lt;2&gt;</span>
+<span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="nx">right</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">token</span><span class="p">{</span><span class="w"> </span><span class="c1">// &lt;3&gt;</span>
+<span class="w">        </span><span class="nx">tokenType</span><span class="p">:</span><span class="w"> </span><span class="nx">groupUncaptured</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">value</span><span class="p">:</span><span class="w">     </span><span class="nx">rhsContext</span><span class="p">.</span><span class="nx">tokens</span><span class="p">,</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">pos</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">rhsContext</span><span class="p">.</span><span class="nx">pos</span><span class="w"> </span><span class="c1">// &lt;4&gt;</span>
+
+<span class="w">    </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">tokens</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="p">[]</span><span class="nx">token</span><span class="p">{{</span><span class="w"> </span><span class="c1">// &lt;5&gt;</span>
+<span class="w">        </span><span class="nx">tokenType</span><span class="p">:</span><span class="w"> </span><span class="nx">or</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">value</span><span class="p">:</span><span class="w">     </span><span class="p">[]</span><span class="nx">token</span><span class="p">{</span><span class="nx">left</span><span class="p">,</span><span class="w"> </span><span class="nx">right</span><span class="p">},</span>
+<span class="w">    </span><span class="p">}}</span>
+<span class="p">}</span>
+</pre></div>
+
+<ol>
+<li>The alternation (<em>or</em>) operation has the following syntax: <code>&lt;left&gt;|&lt;right&gt;</code> or <code>(&lt;left&gt;|&lt;right&gt;)</code> meaning it is an alternation between what's in the left hand side and what's on the right hand side. By the time we encounter the <code>|</code> symbol, we've already parsed everything to the left of it. Now, it's time to parse everything to the right. It's almost the same code as parsing groups.  We create a right-hand-side specific empty context, and collect all the tokens into it. We do this until the end of the regex string or until we face a closing parenthesis. </li>
+<li>Now that we are done parsing both sides, it's time to create the alternation token. The left side will contain all the tokens that were in the original context object, because it contains all the tokens we have parsed so far. </li>
+<li>For the right hand side, we take all the tokens collected into the <code>rhsContext</code> object. For both tokens, we use <code>groupUncaptured</code> as the type, it's simply a type created to indicate a bundle of tokens.</li>
+<li>We update the position of the original context.</li>
+<li>We create the alternation token and add it to the original context. One important thing is that we do not keep the old tokens in the original context as they are already contained in the alternation token.</li>
+</ol>
+<p>Now let's look at repetitions <strong><em>(4)</em></strong>.</p>
+<div class="highlight"><pre><span></span><span class="kd">const</span><span class="w"> </span><span class="nx">repeatInfinity</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="o">-</span><span class="mi">1</span>
+
+<span class="kd">func</span><span class="w"> </span><span class="nx">parseRepeat</span><span class="p">(</span><span class="nx">regex</span><span class="w"> </span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="nx">ctx</span><span class="w"> </span><span class="o">*</span><span class="nx">parseContext</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">ch</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">regex</span><span class="p">[</span><span class="nx">ctx</span><span class="p">.</span><span class="nx">pos</span><span class="p">]</span>
+<span class="w">    </span><span class="kd">var</span><span class="w"> </span><span class="nx">min</span><span class="p">,</span><span class="w"> </span><span class="nx">max</span><span class="w"> </span><span class="kt">int</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">ch</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="sc">&#39;*&#39;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">min</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="mi">0</span>
+<span class="w">        </span><span class="nx">max</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">repeatInfinity</span>
+<span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="nx">ch</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="sc">&#39;?&#39;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">min</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="mi">0</span>
+<span class="w">        </span><span class="nx">max</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="mi">1</span>
+<span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="c1">// ch == &#39;+&#39;</span>
+<span class="w">        </span><span class="nx">min</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="mi">1</span>
+<span class="w">        </span><span class="nx">max</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">repeatInfinity</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="c1">// we need to wrap the last token with the quantifier data</span>
+<span class="w">    </span><span class="c1">// so that we know what the min and max apply to</span>
+<span class="w">    </span><span class="nx">lastToken</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">tokens</span><span class="p">[</span><span class="nb">len</span><span class="p">(</span><span class="nx">ctx</span><span class="p">.</span><span class="nx">tokens</span><span class="p">)</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+<span class="w">    </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">tokens</span><span class="p">[</span><span class="nb">len</span><span class="p">(</span><span class="nx">ctx</span><span class="p">.</span><span class="nx">tokens</span><span class="p">)</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">token</span><span class="p">{</span>
+<span class="w">        </span><span class="nx">tokenType</span><span class="p">:</span><span class="w"> </span><span class="nx">repeat</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">value</span><span class="p">:</span><span class="w"> </span><span class="nx">repeatPayload</span><span class="p">{</span>
+<span class="w">            </span><span class="nx">min</span><span class="p">:</span><span class="w">   </span><span class="nx">min</span><span class="p">,</span>
+<span class="w">            </span><span class="nx">max</span><span class="p">:</span><span class="w">   </span><span class="nx">max</span><span class="p">,</span>
+<span class="w">            </span><span class="nx">token</span><span class="p">:</span><span class="w"> </span><span class="nx">lastToken</span><span class="p">,</span>
+<span class="w">        </span><span class="p">},</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+
+<ul>
+<li>Basic idea for this particular method is that each symbol here specifies some minimum and maximum number of repetitions. <code>repeatInfinity</code> is <code>-1</code>, but we use it as infinity. </li>
+<li>Once we have the boundaries set, we simply take  the last parsed token (<em>because the repetition symbols are always to the right side of the token</em>), wrap it in a <code>repeat</code> token and appropriate boundaries, and finally save it back to the same position in the tokens list. </li>
+</ul>
+<p>The other repetition expression has a bit longer code, but the idea is still the same <strong><em>(5)</em></strong>.</p>
+<div class="highlight"><pre><span></span><span class="kd">func</span><span class="w"> </span><span class="nx">parseRepeatSpecified</span><span class="p">(</span><span class="nx">regex</span><span class="w"> </span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="nx">ctx</span><span class="w"> </span><span class="o">*</span><span class="nx">parseContext</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="c1">// +1 because we skip LCURLY { at the beginning</span>
+<span class="w">    </span><span class="nx">start</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">pos</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span>
+<span class="w">    </span><span class="c1">// proceed until we reach to the end of the curly braces</span>
+<span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="nx">regex</span><span class="p">[</span><span class="nx">ctx</span><span class="p">.</span><span class="nx">pos</span><span class="p">]</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="sc">&#39;}&#39;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">pos</span><span class="o">++</span>
+<span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="nx">boundariesStr</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">regex</span><span class="p">[</span><span class="nx">start</span><span class="p">:</span><span class="nx">ctx</span><span class="p">.</span><span class="nx">pos</span><span class="p">]</span><span class="w"> </span><span class="c1">// &lt;1&gt;</span>
+<span class="w">    </span><span class="nx">pieces</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">strings</span><span class="p">.</span><span class="nx">Split</span><span class="p">(</span><span class="nx">boundariesStr</span><span class="p">,</span><span class="w"> </span><span class="s">&quot;,&quot;</span><span class="p">)</span><span class="w"> </span><span class="c1">// &lt;2&gt;</span>
+<span class="w">    </span><span class="kd">var</span><span class="w"> </span><span class="nx">min</span><span class="p">,</span><span class="w"> </span><span class="nx">max</span><span class="w"> </span><span class="kt">int</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nb">len</span><span class="p">(</span><span class="nx">pieces</span><span class="p">)</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// &lt;3&gt;</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="nx">value</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">strconv</span><span class="p">.</span><span class="nx">Atoi</span><span class="p">(</span><span class="nx">pieces</span><span class="p">[</span><span class="mi">0</span><span class="p">]);</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="nb">panic</span><span class="p">(</span><span class="nx">err</span><span class="p">.</span><span class="nx">Error</span><span class="p">())</span>
+<span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="nx">min</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">value</span>
+<span class="w">            </span><span class="nx">max</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">value</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="nb">len</span><span class="p">(</span><span class="nx">pieces</span><span class="p">)</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">2</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// &lt;4&gt;</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="nx">value</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">strconv</span><span class="p">.</span><span class="nx">Atoi</span><span class="p">(</span><span class="nx">pieces</span><span class="p">[</span><span class="mi">0</span><span class="p">]);</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="nb">panic</span><span class="p">(</span><span class="nx">err</span><span class="p">.</span><span class="nx">Error</span><span class="p">())</span>
+<span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="nx">min</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">value</span>
+<span class="w">        </span><span class="p">}</span>
+
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="nx">pieces</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="s">&quot;&quot;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="nx">max</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">repeatInfinity</span>
+<span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="nx">value</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">strconv</span><span class="p">.</span><span class="nx">Atoi</span><span class="p">(</span><span class="nx">pieces</span><span class="p">[</span><span class="mi">1</span><span class="p">]);</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="nb">panic</span><span class="p">(</span><span class="nx">err</span><span class="p">.</span><span class="nx">Error</span><span class="p">())</span>
+<span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="nx">max</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">value</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nb">panic</span><span class="p">(</span><span class="nx">fmt</span><span class="p">.</span><span class="nx">Sprintf</span><span class="p">(</span><span class="s">&quot;There must be either 1 or 2 values specified for the quantifier: provided &#39;%s&#39;&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">boundariesStr</span><span class="p">))</span>
+<span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="c1">// we need to wrap the last token with the quantifier data</span>
+<span class="w">    </span><span class="c1">// so that we know what the min and max apply to</span>
+<span class="w">    </span><span class="c1">// &lt;5&gt;</span>
+<span class="w">    </span><span class="nx">lastToken</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">tokens</span><span class="p">[</span><span class="nb">len</span><span class="p">(</span><span class="nx">ctx</span><span class="p">.</span><span class="nx">tokens</span><span class="p">)</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+<span class="w">    </span><span class="nx">ctx</span><span class="p">.</span><span class="nx">tokens</span><span class="p">[</span><span class="nb">len</span><span class="p">(</span><span class="nx">ctx</span><span class="p">.</span><span class="nx">tokens</span><span class="p">)</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">token</span><span class="p">{</span>
+<span class="w">        </span><span class="nx">tokenType</span><span class="p">:</span><span class="w"> </span><span class="nx">repeat</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">value</span><span class="p">:</span><span class="w"> </span><span class="nx">repeatPayload</span><span class="p">{</span>
+<span class="w">            </span><span class="nx">min</span><span class="p">:</span><span class="w">   </span><span class="nx">min</span><span class="p">,</span>
+<span class="w">            </span><span class="nx">max</span><span class="p">:</span><span class="w">   </span><span class="nx">max</span><span class="p">,</span>
+<span class="w">            </span><span class="nx">token</span><span class="p">:</span><span class="w"> </span><span class="nx">lastToken</span><span class="p">,</span>
+<span class="w">        </span><span class="p">},</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+
+<ol>
+<li>We need to get the string expression for boundaries which is everything between the curly braces <code>{}</code>.</li>
+<li>Next, we split that string into pieces separated by a comma <code>,</code></li>
+<li>If there's only one element (e.g., <code>{1}</code>) that means the exact number of repeats, so <code>min</code> and <code>max</code> will be the same. The error handling syntax of Golang may make things look complicated, but it just means that if there's any error while converting a string into a integer, just panic and stop everything.</li>
+<li>If there are two pieces, the first value is the min, and the second one is the max (e.g., <code>{3,7}</code>). However, there's a chance that the second value might be missing: <code>{3,}</code>. In this example, the token is required to repeat at least three times, but no upper bound is set which means it will be <code>repeatInfinity</code>.</li>
+<li>Now that we have the boundaries, we take  the last parsed token, wrap it in a <code>repeat</code> token and appropriate boundaries, and save it back to the same position in the tokens list. </li>
+</ol>
+<p>With this, we conclude the steps required for parsing a regex string. Next, we'll examine how we can build a state machine out of those tokens we've parsed.</p>
+<h2>Building the state machine</h2>
+<p>In this section, we'll learn how to build a state machine from the tokens we parsed, but first, let's discuss what a state machine is.</p>
+<h3>What's an finite state machine?</h3>
+<p>A finite state machine (FSM) or a finite automata (FA) is an abstract machine that consists of a finite set of states, an initial state, terminal states and transitions between those states. FA has 2 types: <em>deterministic finite automata</em> (DFA) and <em>non-deterministic finite automata</em> (NFA). </p>
+<p>While automatas are used in many things, what's relevant to our context is the way they are used for checking if a certain text is accepted. Below is an example to a <em>deterministic</em> finite automata. It will only accept the words <em>"abd"</em> and <em>"ace"</em>.</p>
+<p><img alt="DFA example" src="/dfa_example.png" /></p>
+<p>The way this acceptance check is performed is as follows:
+1. We're at the start state, <em>always</em>.
+2. We take the first character of the input string and see if there's a corresponding transition for that.
+    - if yes, we transition to that state and continue with the next char
+    - if no, the string is not accepted
+3. We repeat step 2 with the next set of characters until we finish the string and we check if we're at the end/terminal state. 
+4. Being on the terminal state means that the string is accepted
+5. For the DFA above, <em>"abd"</em> will always end on the terminal state, while <em>"abc"</em> will get stuck before reaching the end state.</p>
+<p>In DFAs, given a state, with the same input you will always transition to the same target state. It's deterministic. </p>
+<p><img alt="eNFA example" src="/nfa_example.png" /></p>
+<p>In NFAs, given a state, with the same input you can go to different states, thus this makes it non-deterministic. <code>epsilon</code> represents an empty input. The NFA example above also only accepts the strings: <em>"abd"</em> and <em>"ace"</em>. But notice how with the epsilon value you can transition into multiple states.</p>
+<p>In the next sections, we will take our list of parsed tokens and create an epsilon-NFA out of them. Once we have the NFA, all we will need to do would be to go through each state and try to consume one character from the input string at a time and see if we end up in the end state.</p>
+<h3>Regular expression to epsilon-NFA</h3>
+<p>The previous step provides us with a list of tokens. We now need to convert these to an epsilon-NFA. To achieve this, we will use an algorithm called Thompson's construction. It's an algorithm to construct and combine multiple NFAs into one NFA.</p>
+<p>To represent an NFA state, we'll use this simple structure:</p>
+<div class="highlight"><pre><span></span><span class="kd">type</span><span class="w"> </span><span class="nx">state</span><span class="w"> </span><span class="kd">struct</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">start</span><span class="w">       </span><span class="kt">bool</span>
+<span class="w">    </span><span class="nx">terminal</span><span class="w">    </span><span class="kt">bool</span>
+<span class="w">    </span><span class="nx">transitions</span><span class="w"> </span><span class="kd">map</span><span class="p">[</span><span class="kt">uint8</span><span class="p">][]</span><span class="o">*</span><span class="nx">state</span>
+<span class="p">}</span>
+</pre></div>
+
+<ol>
+<li><code>start</code> indicates whether the state's the entrypoint or not.</li>
+<li><code>terminal</code> indicates wheteher the state's the final state. Reaching this state means that the input matches with the regex.</li>
+<li><code>transitions</code> is a map where a character maps to a list of different states.</li>
+</ol>
+<p>This is the high-level visualization of the NFA construction algorithm:</p>
+<p><img alt="Creating an NFA from regular expression, high level view" src="/toNFA_explained.png" /></p>
+<ul>
+<li>We will have a start (pink) and terminal (blue) states.</li>
+<li>For each token, we'll create a separate NFA, and these NFAs will be concatenated with epsilon transitions. Last state of the previous NFA, will be connected to the first state of the next NFA, like this:</li>
+</ul>
+<p><img alt="Concatenation process" src="/toNFA_concat.png" /></p>
+<ul>
+<li>There will be an epsilon transition from the start state to the first state (s1) of the concatenated NFAs.</li>
+<li>There will be an epsilon transition from the last state of the concatenated NFAs to the terminal state.</li>
+</ul>
+<p>Let's go over the same thing in code:</p>
+<div class="highlight"><pre><span></span><span class="kd">const</span><span class="w"> </span><span class="nx">epsilonChar</span><span class="w"> </span><span class="kt">uint8</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="c1">// empty character</span>
+
+<span class="kd">func</span><span class="w"> </span><span class="nx">toNfa</span><span class="p">(</span><span class="nx">ctx</span><span class="w"> </span><span class="o">*</span><span class="nx">parseContext</span><span class="p">)</span><span class="w"> </span><span class="o">*</span><span class="nx">state</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">startState</span><span class="p">,</span><span class="w"> </span><span class="nx">endState</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">tokenToNfa</span><span class="p">(</span><span class="o">&amp;</span><span class="nx">ctx</span><span class="p">.</span><span class="nx">tokens</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span><span class="w"> </span><span class="c1">// &lt;1&gt;</span>
+
+<span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="nx">i</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w"> </span><span class="nx">i</span><span class="w"> </span><span class="p">&lt;</span><span class="w"> </span><span class="nb">len</span><span class="p">(</span><span class="nx">ctx</span><span class="p">.</span><span class="nx">tokens</span><span class="p">);</span><span class="w"> </span><span class="nx">i</span><span class="o">++</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// &lt;2&gt;</span>
+<span class="w">        </span><span class="nx">startNext</span><span class="p">,</span><span class="w"> </span><span class="nx">endNext</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">tokenToNfa</span><span class="p">(</span><span class="o">&amp;</span><span class="nx">ctx</span><span class="p">.</span><span class="nx">tokens</span><span class="p">[</span><span class="nx">i</span><span class="p">])</span><span class="w"> </span><span class="c1">// &lt;3&gt;</span>
+<span class="w">        </span><span class="nx">endState</span><span class="p">.</span><span class="nx">transitions</span><span class="p">[</span><span class="nx">epsilonChar</span><span class="p">]</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nb">append</span><span class="p">(</span>
+<span class="w">            </span><span class="nx">endState</span><span class="p">.</span><span class="nx">transitions</span><span class="p">[</span><span class="nx">epsilonChar</span><span class="p">],</span><span class="w"> </span>
+<span class="w">            </span><span class="nx">startNext</span><span class="p">,</span>
+<span class="w">        </span><span class="p">)</span><span class="w"> </span><span class="c1">// &lt;4&gt;</span>
+<span class="w">        </span><span class="nx">endState</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">endNext</span><span class="w"> </span><span class="c1">// &lt;5&gt;</span>
+<span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="nx">start</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">state</span><span class="p">{</span><span class="w"> </span><span class="c1">// &lt;6&gt;</span>
+<span class="w">        </span><span class="nx">transitions</span><span class="p">:</span><span class="w"> </span><span class="kd">map</span><span class="p">[</span><span class="kt">uint8</span><span class="p">][]</span><span class="o">*</span><span class="nx">state</span><span class="p">{</span>
+<span class="w">            </span><span class="nx">epsilonChar</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nx">startState</span><span class="p">},</span>
+<span class="w">        </span><span class="p">},</span>
+<span class="w">        </span><span class="nx">start</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="nx">end</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">state</span><span class="p">{</span><span class="w"> </span><span class="c1">// 7</span>
+<span class="w">        </span><span class="nx">transitions</span><span class="p">:</span><span class="w"> </span><span class="kd">map</span><span class="p">[</span><span class="kt">uint8</span><span class="p">][]</span><span class="o">*</span><span class="nx">state</span><span class="p">{},</span>
+<span class="w">        </span><span class="nx">terminal</span><span class="p">:</span><span class="w">    </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="nx">endState</span><span class="p">.</span><span class="nx">transitions</span><span class="p">[</span><span class="nx">epsilonChar</span><span class="p">]</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nb">append</span><span class="p">(</span>
+<span class="w">        </span><span class="nx">endState</span><span class="p">.</span><span class="nx">transitions</span><span class="p">[</span><span class="nx">epsilonChar</span><span class="p">],</span><span class="w"> </span>
+<span class="w">        </span><span class="nx">end</span><span class="p">,</span>
+<span class="w">    </span><span class="p">)</span><span class="w"> </span><span class="c1">// &lt;8&gt;</span>
+
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">start</span><span class="w"> </span><span class="c1">// &lt;9&gt;</span>
+<span class="p">}</span>
+</pre></div>
+
+<ol>
+<li>We take the first token, and convert that to an NFA. <code>tokenToNfa</code> function will be explained later. For now, just know that it creates an NFA from the given token, and returns the start and end states of this newly created NFA.</li>
+<li>We go over the rest of tokens</li>
+<li>We call <code>tokenToNfa</code> for each token and save the start and end states.</li>
+<li>We link the end state from the previous <code>tokenToNfa</code> call to the start state of the new NFA.</li>
+<li>Save the end state, because it will be useful in the next iteration</li>
+<li>We create the previously mentioned start state. This state now has an epsilon transition to the start state of the very first NFA we created. </li>
+<li>We create the terminal state. </li>
+<li>The end state of the last NFA we created now has an epsilon transition to the terminal state.</li>
+<li>Finally, we return the start state because that's the entrypoint.</li>
+</ol>
+<p>Now that we have the outline of what we're doing to construct our NFA, let's take a look at how each token is converted into an NFA.</p>
+<div class="highlight"><pre><span></span><span class="c1">// returns (start, end)</span>
+<span class="kd">func</span><span class="w"> </span><span class="nx">tokenToNfa</span><span class="p">(</span><span class="nx">t</span><span class="w"> </span><span class="o">*</span><span class="nx">token</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="o">*</span><span class="nx">state</span><span class="p">,</span><span class="w"> </span><span class="o">*</span><span class="nx">state</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">start</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">state</span><span class="p">{</span>
+<span class="w">        </span><span class="nx">transitions</span><span class="p">:</span><span class="w"> </span><span class="kd">map</span><span class="p">[</span><span class="kt">uint8</span><span class="p">][]</span><span class="o">*</span><span class="nx">state</span><span class="p">{},</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">    </span><span class="nx">end</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="o">&amp;</span><span class="nx">state</span><span class="p">{</span>
+<span class="w">        </span><span class="nx">transitions</span><span class="p">:</span><span class="w"> </span><span class="kd">map</span><span class="p">[</span><span class="kt">uint8</span><span class="p">][]</span><span class="o">*</span><span class="nx">state</span><span class="p">{},</span>
+<span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="k">switch</span><span class="w"> </span><span class="nx">t</span><span class="p">.</span><span class="nx">tokenType</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">case</span><span class="w"> </span><span class="nx">literal</span><span class="p">:</span>
+<span class="w">    </span><span class="k">case</span><span class="w"> </span><span class="nx">or</span><span class="p">:</span>
+<span class="w">    </span><span class="k">case</span><span class="w"> </span><span class="nx">bracket</span><span class="p">:</span>
+<span class="w">    </span><span class="k">case</span><span class="w"> </span><span class="nx">group</span><span class="p">,</span><span class="w"> </span><span class="nx">groupUncaptured</span><span class="p">:</span>
+<span class="w">    </span><span class="k">case</span><span class="w"> </span><span class="nx">repeat</span><span class="p">:</span>
+<span class="w">    </span><span class="k">default</span><span class="p">:</span>
+<span class="w">        </span><span class="nb">panic</span><span class="p">(</span><span class="s">&quot;unknown type of token&quot;</span><span class="p">)</span>
+<span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">start</span><span class="p">,</span><span class="w"> </span><span class="nx">end</span>
+<span class="p">}</span>
+</pre></div>
+
+<ul>
+<li>The code above is the skeleton of the <code>tokenToNfa</code> function, we'll go over each token type and how it is handled.</li>
+<li>Overall, we create empty <code>start</code> and <code>end</code> states, perform some logic within switch statement, and return those variables.</li>
+</ul>
+<p>In the next couple of sections, we'll go over each token type, visualize the steps and finally show the code.</p>
+<h4>Literals</h4>
+<p>Let's start with the literals as they are the simplest to explain.</p>
+<p><img alt="literal to nfa" src="/tokenToNfa_literal.png" /></p>
+<ul>
+<li>In order to go from <code>start</code> to <code>end</code>, we need the transition <code>ch</code>. <code>ch</code> represents a single character.</li>
+</ul>
+<div class="highlight"><pre><span></span><span class="k">case</span><span class="w"> </span><span class="nx">literal</span><span class="p">:</span>
+<span class="w">    </span><span class="nx">ch</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">t</span><span class="p">.</span><span class="nx">value</span><span class="p">.(</span><span class="kt">uint8</span><span class="p">)</span>
+<span class="w">    </span><span class="nx">start</span><span class="p">.</span><span class="nx">transitions</span><span class="p">[</span><span class="nx">ch</span><span class="p">]</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="p">[]</span><span class="o">*</span><span class="nx">state</span><span class="p">{</span><span class="nx">end</span><span class="p">}</span>
+</pre></div>
+
+<ul>
+<li>We can see the exact same thing in the code as well. <code>t.value</code> is referring to the value we saved in the <code>token</code> struct back when we were parsing the tokens.</li>
+</ul>
+<h4>or/alternative</h4>
+<p><img alt="or to nfa" src="/tokenToNfa_or.png" /></p>
+<ul>
+<li>Or means a choice between two different paths. Recall that in the parsing phase, the value for the or token had <em>left</em> and <em>right</em> sides (shown in the diagram as well). Each of these tokens represents different NFAs. </li>
+<li>To create the Or NFA, we need to have:<ul>
+<li>an epsilon transition from the start state to the starts of both left and right NFAs</li>
+<li>an epsilon transition from the ends of both left and right NFAs to the end state.</li>
+</ul>
+</li>
+</ul>
+<div class="highlight"><pre><span></span><span class="k">case</span><span class="w"> </span><span class="nx">or</span><span class="p">:</span>
+<span class="w">    </span><span class="nx">values</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">t</span><span class="p">.</span><span class="nx">value</span><span class="p">.([]</span><span class="nx">token</span><span class="p">)</span>
+<span class="w">    </span><span class="nx">left</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">values</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+<span class="w">    </span><span class="nx">right</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">values</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+
+<span class="w">    </span><span class="nx">s1</span><span class="p">,</span><span class="w"> </span><span class="nx">e1</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">tokenToNfa</span><span class="p">(</span><span class="o">&amp;</span><span class="nx">left</span><span class="p">)</span><span class="w"> </span><span class="c1">// &lt;1&gt;</span>
+<span class="w">    </span><span class="nx">s2</span><span class="p">,</span><span class="w"> </span><span class="nx">e2</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">tokenToNfa</span><span class="p">(</span><span class="o">&amp;</span><span class="nx">right</span><span class="p">)</span><span class="w"> </span><span class="c1">// &lt;1&gt;</span>
+
+<span class="w">    </span><span class="nx">start</span><span class="p">.</span><span class="nx">transitions</span><span class="p">[</span><span class="nx">epsilonChar</span><span class="p">]</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="p">[]</span><span class="o">*</span><span class="nx">state</span><span class="p">{</span><span class="nx">s1</span><span class="p">,</span><span class="w"> </span><span class="nx">s2</span><span class="p">}</span><span class="w"> </span><span class="c1">// &lt;2&gt;</span>
+<span class="w">    </span><span class="nx">e1</span><span class="p">.</span><span class="nx">transitions</span><span class="p">[</span><span class="nx">epsilonChar</span><span class="p">]</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="p">[]</span><span class="o">*</span><span class="nx">state</span><span class="p">{</span><span class="nx">end</span><span class="p">}</span><span class="w"> </span><span class="c1">// &lt;3&gt;</span>
+<span class="w">    </span><span class="nx">e2</span><span class="p">.</span><span class="nx">transitions</span><span class="p">[</span><span class="nx">epsilonChar</span><span class="p">]</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="p">[]</span><span class="o">*</span><span class="nx">state</span><span class="p">{</span><span class="nx">end</span><span class="p">}</span><span class="w"> </span><span class="c1">// &lt;3&gt;</span>
+</pre></div>
+
+<ol>
+<li>Creating both left and right NFAs</li>
+<li>Connecting the start state with the starts of both NFAs with an epsilon transition</li>
+<li>Connecting the end states of each NFA with the end state of the Or NFA.</li>
+</ol>
+<h4>Bracket expression</h4>
+<p><img alt="bracket to nfa" src="/tokenToNfa_bracket.png" /></p>
+<ul>
+<li>We can think of bracket expressions as a big Or expressions. For example, <code>[a-c0-2x]</code> means <code>a|b|c|0|1|2|x</code>. So it makes sense for it to visually resemble the Or expression. One minor difference is that in bracket expressions we work with literals and not arbitrary NFAs, so we can simply create a transition for each literal from the start state to the end state. </li>
+<li>The image is the visualization of the expression: <code>[a-c]</code></li>
+</ul>
+<div class="highlight"><pre><span></span><span class="k">case</span><span class="w"> </span><span class="nx">bracket</span><span class="p">:</span>
+<span class="w">    </span><span class="nx">literals</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">t</span><span class="p">.</span><span class="nx">value</span><span class="p">.(</span><span class="kd">map</span><span class="p">[</span><span class="kt">uint8</span><span class="p">]</span><span class="kt">bool</span><span class="p">)</span>
+
+<span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="nx">l</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="k">range</span><span class="w"> </span><span class="nx">literals</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// &lt;1&gt;</span>
+<span class="w">        </span><span class="nx">start</span><span class="p">.</span><span class="nx">transitions</span><span class="p">[</span><span class="nx">l</span><span class="p">]</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="p">[]</span><span class="o">*</span><span class="nx">state</span><span class="p">{</span><span class="nx">end</span><span class="p">}</span><span class="w"> </span><span class="c1">// &lt;2&gt;</span>
+<span class="w">    </span><span class="p">}</span>
+</pre></div>
+
+<ol>
+<li>We go through each literal in the bracket</li>
+<li>We add a transition from the <code>start</code> state to the <code>end</code> state.</li>
+</ol>
+<p>Although in our regex engine, we will not implement a negated bracket expression (<em>where the characher should be none of the specified chars</em>), this is how the Thompson construction would look like: </p>
+<p><img alt="bracket negation to nfa" src="/tokenToNfa_bracket_not.png" /></p>
+<ul>
+<li><code>*</code> represents any character</li>
+<li>This really depends on the way the engine is implemented, but one simple way could be to look for exact matches, if there's none, we could use the any character transition.</li>
+<li>By matching the exact characters first, we could simply send the text containing those characters into a dead end, resulting in a non-match.</li>
+</ul>
+<h4>Groups</h4>
+<p>To convert a group expression into an NFA, we need to concatenate all the individual NFAs created from the tokens inside the group. We've already seen how this is done when we covered <code>toNFA</code> function. The code is exactly the same, with different variable names: </p>
+<div class="highlight"><pre><span></span><span class="c1">// there is no difference between </span>
+<span class="c1">// group, groupUncaptured types in our engine</span>
+<span class="k">case</span><span class="w"> </span><span class="nx">group</span><span class="p">,</span><span class="w"> </span><span class="nx">groupUncaptured</span><span class="p">:</span>
+<span class="w">    </span><span class="nx">tokens</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">t</span><span class="p">.</span><span class="nx">value</span><span class="p">.([]</span><span class="nx">token</span><span class="p">)</span>
+<span class="w">    </span><span class="nx">start</span><span class="p">,</span><span class="w"> </span><span class="nx">end</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">tokenToNfa</span><span class="p">(</span><span class="o">&amp;</span><span class="nx">tokens</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+<span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="nx">i</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="mi">1</span><span class="p">;</span><span class="w"> </span><span class="nx">i</span><span class="w"> </span><span class="p">&lt;</span><span class="w"> </span><span class="nb">len</span><span class="p">(</span><span class="nx">tokens</span><span class="p">);</span><span class="w"> </span><span class="nx">i</span><span class="o">++</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">ts</span><span class="p">,</span><span class="w"> </span><span class="nx">te</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">tokenToNfa</span><span class="p">(</span><span class="o">&amp;</span><span class="nx">tokens</span><span class="p">[</span><span class="nx">i</span><span class="p">])</span>
+<span class="w">        </span><span class="nx">end</span><span class="p">.</span><span class="nx">transitions</span><span class="p">[</span><span class="nx">epsilonChar</span><span class="p">]</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nb">append</span><span class="p">(</span>
+<span class="w">            </span><span class="nx">end</span><span class="p">.</span><span class="nx">transitions</span><span class="p">[</span><span class="nx">epsilonChar</span><span class="p">],</span><span class="w"> </span>
+<span class="w">            </span><span class="nx">ts</span><span class="p">,</span>
+<span class="w">        </span><span class="p">)</span>
+<span class="w">        </span><span class="nx">end</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">te</span>
+<span class="w">    </span><span class="p">}</span>
+</pre></div>
+
+<h4>Repetition</h4>
+<p>Out of all the examples we've covered, understanding repetition might be the trickiest, thus we'll take it step by step and try to figure out a generalized solution that covers all repetition cases.</p>
+<p>In all the examples, we're about to go through, <code>A</code> will represent any NFA.</p>
+<p>Let's start with asterisk (Kleene's star), plus and question mark (optional). In each of the three examples below, we've also specified the corresponding minimum and maximum occurrence requirements.</p>
+<p><img alt="repeat 1 to nfa" src="/tokenToNfa_repeat_1.png" /></p>
+<ul>
+<li>Each example has an epsilon transition from start state to the start of <code>A</code>, and from the end of <code>A</code> to the end state. This indicates repeating the NFA <code>A</code> exactly once.</li>
+<li><code>*</code>, means that <code>A</code> can be skipped or repeated any number of times:<ul>
+<li>For skipping <code>A</code>, we add an epsilon transition from the start state to the end state directly, bypassing <code>A</code> altogether.</li>
+<li>For repeating any number of times, we add an epsilon transition from the end state to the start of <code>A</code></li>
+</ul>
+</li>
+<li><code>+</code> means that <code>A</code> must be repeated at least once, and no upper bound is set.<ul>
+<li>To achieve the the minimum occurrence requirement (which is 1), we simply remove the epsilon transtion from the <code>*</code> example. Now, there's no way to bypass <code>A</code>.</li>
+</ul>
+</li>
+<li><code>?</code> means that <code>A</code> can either be skipped or it can occur exactly once<ul>
+<li>This is very similar to <code>*</code> example, and we only need to remove the epsilon transition from the end state to the start of <code>A</code>.</li>
+</ul>
+</li>
+<li>Notes:<ol>
+<li>If minimum is 0, add an epsilon transition from start state to the end state</li>
+<li>If maximum is infinity, add an epsilon transition from the end state to the start of the <code>A</code>.</li>
+</ol>
+</li>
+</ul>
+<p>Next, let's take a look at the case where exact number of repetitions are specified.</p>
+<p><img alt="repeat 2 to nfa" src="/tokenToNfa_repeat_2.png" /></p>
+<ul>
+<li>We simply concatenate the same NFA <code>A</code> <em>m</em> times.</li>
+</ul>
+<p>What if the minimum is specified, but the upper bound is the infinity?</p>
+<p><img alt="repeat 3 to nfa" src="/tokenToNfa_repeat_3.png" /></p>
+<ul>
+<li>We still concatenate the same NFA <code>A</code> <em>m</em> times because that's the minimum amount of times it needs to repeat. </li>
+<li>But we also add an epsilon transition from the end state to the start of the final instance of <code>A</code> (<em>remember the second note from above</em>)</li>
+</ul>
+<p>Now, onto the final case. Both minimum and maximum number of occurrences are specified, and maximum is not infinity.</p>
+<p><img alt="repeat 4 to nfa" src="/tokenToNfa_repeat_4.png" /></p>
+<ul>
+<li>We know that <code>A</code> needs to repeat <em>m</em> times. This means that we have to concatenate <code>A</code> <em>m</em> times. </li>
+<li>The remaining <em>(n-m)</em> repetitions are completely optional. So at any point, after matching the minimum number of repetitions, we should be able to go to the end state.</li>
+<li>To achieve the early termination, all we need to do is to add an epsilon transition from the start state of each <code>A</code> instance to the end state.</li>
+</ul>
+<p>Let's now see how this is actually coded:</p>
+<div class="highlight"><pre><span></span><span class="k">case</span><span class="w"> </span><span class="nx">repeat</span><span class="p">:</span>
+<span class="w">    </span><span class="nx">p</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">t</span><span class="p">.</span><span class="nx">value</span><span class="p">.(</span><span class="nx">repeatPayload</span><span class="p">)</span>
+
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">p</span><span class="p">.</span><span class="nx">min</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// &lt;1&gt;</span>
+<span class="w">        </span><span class="nx">start</span><span class="p">.</span><span class="nx">transitions</span><span class="p">[</span><span class="nx">epsilonChar</span><span class="p">]</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="p">[]</span><span class="o">*</span><span class="nx">state</span><span class="p">{</span><span class="nx">end</span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="kd">var</span><span class="w"> </span><span class="nx">copyCount</span><span class="w"> </span><span class="kt">int</span><span class="w"> </span><span class="c1">// &lt;2&gt;</span>
+
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">p</span><span class="p">.</span><span class="nx">max</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="nx">repeatInfinity</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="nx">p</span><span class="p">.</span><span class="nx">min</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="nx">copyCount</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="mi">1</span>
+<span class="w">        </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="nx">copyCount</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">p</span><span class="p">.</span><span class="nx">min</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">copyCount</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">p</span><span class="p">.</span><span class="nx">max</span>
+<span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="nx">from</span><span class="p">,</span><span class="w"> </span><span class="nx">to</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">tokenToNfa</span><span class="p">(</span><span class="o">&amp;</span><span class="nx">p</span><span class="p">.</span><span class="nx">token</span><span class="p">)</span><span class="w"> </span><span class="c1">// &lt;3&gt;</span>
+<span class="w">    </span><span class="nx">start</span><span class="p">.</span><span class="nx">transitions</span><span class="p">[</span><span class="nx">epsilonChar</span><span class="p">]</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nb">append</span><span class="p">(</span><span class="w"> </span><span class="c1">// &lt;4&gt;</span>
+<span class="w">        </span><span class="nx">start</span><span class="p">.</span><span class="nx">transitions</span><span class="p">[</span><span class="nx">epsilonChar</span><span class="p">],</span><span class="w"> </span>
+<span class="w">        </span><span class="nx">from</span><span class="p">,</span>
+<span class="w">    </span><span class="p">)</span><span class="w"> </span>
+
+<span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="nx">i</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="mi">2</span><span class="p">;</span><span class="w"> </span><span class="nx">i</span><span class="w"> </span><span class="o">&lt;=</span><span class="w"> </span><span class="nx">copyCount</span><span class="p">;</span><span class="w"> </span><span class="nx">i</span><span class="o">++</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// &lt;5&gt;</span>
+<span class="w">        </span><span class="nx">s</span><span class="p">,</span><span class="w"> </span><span class="nx">e</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">tokenToNfa</span><span class="p">(</span><span class="o">&amp;</span><span class="nx">p</span><span class="p">.</span><span class="nx">token</span><span class="p">)</span>
+
+<span class="w">        </span><span class="c1">// connect the end of the previous one </span>
+<span class="w">        </span><span class="c1">// to the start of this one</span>
+<span class="w">        </span><span class="nx">to</span><span class="p">.</span><span class="nx">transitions</span><span class="p">[</span><span class="nx">epsilonChar</span><span class="p">]</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nb">append</span><span class="p">(</span><span class="w"> </span><span class="c1">// &lt;6&gt;</span>
+<span class="w">            </span><span class="nx">to</span><span class="p">.</span><span class="nx">transitions</span><span class="p">[</span><span class="nx">epsilonChar</span><span class="p">],</span><span class="w"> </span>
+<span class="w">            </span><span class="nx">s</span><span class="p">,</span>
+<span class="w">        </span><span class="p">)</span><span class="w"> </span>
+
+<span class="w">        </span><span class="c1">// keep track of the previous NFA&#39;s entry and exit states</span>
+<span class="w">        </span><span class="nx">from</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">s</span><span class="w"> </span><span class="c1">// &lt;7&gt;</span>
+<span class="w">        </span><span class="nx">to</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nx">e</span><span class="w">   </span><span class="c1">// &lt;7&gt;</span>
+
+<span class="w">        </span><span class="c1">// after the minimum required amount of repetitions</span>
+<span class="w">        </span><span class="c1">// the rest must be optional, thus we add an </span>
+<span class="w">        </span><span class="c1">// epsilon transition to the start of each NFA </span>
+<span class="w">        </span><span class="c1">// so that we can skip them if needed</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="nx">i</span><span class="w"> </span><span class="p">&gt;</span><span class="w"> </span><span class="nx">p</span><span class="p">.</span><span class="nx">min</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// &lt;8&gt;</span>
+<span class="w">            </span><span class="nx">s</span><span class="p">.</span><span class="nx">transitions</span><span class="p">[</span><span class="nx">epsilonChar</span><span class="p">]</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nb">append</span><span class="p">(</span>
+<span class="w">                </span><span class="nx">s</span><span class="p">.</span><span class="nx">transitions</span><span class="p">[</span><span class="nx">epsilonChar</span><span class="p">],</span><span class="w"> </span>
+<span class="w">                </span><span class="nx">end</span><span class="p">,</span>
+<span class="w">            </span><span class="p">)</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="nx">to</span><span class="p">.</span><span class="nx">transitions</span><span class="p">[</span><span class="nx">epsilonChar</span><span class="p">]</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nb">append</span><span class="p">(</span><span class="w"> </span><span class="c1">// &lt;9&gt;</span>
+<span class="w">        </span><span class="nx">to</span><span class="p">.</span><span class="nx">transitions</span><span class="p">[</span><span class="nx">epsilonChar</span><span class="p">],</span><span class="w"> </span>
+<span class="w">        </span><span class="nx">end</span><span class="p">,</span>
+<span class="w">    </span><span class="p">)</span><span class="w"> </span>
+
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">p</span><span class="p">.</span><span class="nx">max</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="nx">repeatInfinity</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// &lt;10&gt;</span>
+<span class="w">        </span><span class="nx">end</span><span class="p">.</span><span class="nx">transitions</span><span class="p">[</span><span class="nx">epsilonChar</span><span class="p">]</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="nb">append</span><span class="p">(</span>
+<span class="w">            </span><span class="nx">end</span><span class="p">.</span><span class="nx">transitions</span><span class="p">[</span><span class="nx">epsilonChar</span><span class="p">],</span><span class="w"> </span>
+<span class="w">            </span><span class="nx">from</span><span class="p">,</span>
+<span class="w">        </span><span class="p">)</span>
+<span class="w">    </span><span class="p">}</span>
+</pre></div>
+
+<ol>
+<li>From our notes earlier, we know that if minimum is 0, we need to have an epsilon transition from the start state to the end state</li>
+<li><code>copyCount</code> is the maximum number of times we need to create an NFA from <code>p.token</code>.<ul>
+<li>if the max is infinity and min is 0, it is 1 because we need to create at least one copy</li>
+<li>if the max is infinity and min is non-zero, it is the min value because, we need to repeat it at least <code>p.min</code> times.</li>
+<li>if the max is not infinity, <code>copyCount</code> is whatever the max is.</li>
+</ul>
+</li>
+<li>Just like we did in the group type, we need to concatenate multiple NFAs, so we start by creating the first copy of this NFA.</li>
+<li>The start state is connected to the start of this new NFA.</li>
+<li>We iterate the remaining amount of times</li>
+<li>The actual concatenation step; where we connect the end of the previous NFA to the start of the current NFA.</li>
+<li>Save the start and end of the current NFA.</li>
+<li>Once we have created the minimum required number of NFAs, the rest must be optional. Thus, we add an epsilon transition from the start of each of those new optional NFAs to the end state.</li>
+<li>Connect the end of the last NFA, to the end state.</li>
+<li>If the upper bound is infinity, add an epsilon transition from the end state to the start of the last NFA.</li>
+</ol>
+<h4>Example</h4>
+<p>Considering all the techniques we discussed above, this is what we would generate for this regex: <code>19[5-9][0-9]</code>:</p>
+<p><img alt="complete example" src="/example_nfa_complete.png" /></p>
+<h2>Matching</h2>
+<p>Final piece of our regex engine is the matching logic. The basic idea is that we'll feed each character of the test string, in order, to our current NFA state until we reach to the end of the string. If we finish the entire string and we're at the terminal state, it means the string matches with the regex.</p>
+<p>While going through the string, we'll use a cursor/pointer to a certain position in the string. The image below visualizes this. Keep in mind that, in addition to each index in the string, our pointer can also reference to the beginning of the string (prior to matching) and the end of the string (once we exhaust all the characters).</p>
+<p><img alt="cursur positions" src="/string_with_positions.png" /></p>
+<p>In code, we'll have these helper constants and method.</p>
+<div class="highlight"><pre><span></span><span class="kd">const</span><span class="w"> </span><span class="p">(</span>
+<span class="w">    </span><span class="nx">startOfText</span><span class="w"> </span><span class="kt">uint8</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="mi">1</span>
+<span class="w">    </span><span class="nx">endOfText</span><span class="w">   </span><span class="kt">uint8</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="mi">2</span>
+<span class="p">)</span>
+
+<span class="kd">func</span><span class="w"> </span><span class="nx">getChar</span><span class="p">(</span><span class="nx">input</span><span class="w"> </span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="nx">pos</span><span class="w"> </span><span class="kt">int</span><span class="p">)</span><span class="w"> </span><span class="kt">uint8</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">pos</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="nb">len</span><span class="p">(</span><span class="nx">input</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="nx">endOfText</span>
+<span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">pos</span><span class="w"> </span><span class="p">&lt;</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="nx">startOfText</span>
+<span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">input</span><span class="p">[</span><span class="nx">pos</span><span class="p">]</span>
+<span class="p">}</span>
+</pre></div>
+
+<p>Now onto the code for matching:</p>
+<div class="highlight"><pre><span></span><span class="kd">func</span><span class="w"> </span><span class="p">(</span><span class="nx">s</span><span class="w"> </span><span class="o">*</span><span class="nx">state</span><span class="p">)</span><span class="w"> </span><span class="nx">check</span><span class="p">(</span><span class="nx">input</span><span class="w"> </span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="nx">pos</span><span class="w"> </span><span class="kt">int</span><span class="p">)</span><span class="w"> </span><span class="kt">bool</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// &lt;1&gt;</span>
+<span class="w">    </span><span class="nx">ch</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">getChar</span><span class="p">(</span><span class="nx">input</span><span class="p">,</span><span class="w"> </span><span class="nx">pos</span><span class="p">)</span><span class="w"> </span><span class="c1">// &lt;2&gt;</span>
+
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">ch</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="nx">endOfText</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">s</span><span class="p">.</span><span class="nx">terminal</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// &lt;3&gt;</span>
+<span class="w">        </span><span class="k">return</span><span class="w"> </span><span class="kc">true</span>
+<span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="nx">states</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">s</span><span class="p">.</span><span class="nx">transitions</span><span class="p">[</span><span class="nx">ch</span><span class="p">];</span><span class="w"> </span><span class="nb">len</span><span class="p">(</span><span class="nx">states</span><span class="p">)</span><span class="w"> </span><span class="p">&gt;</span><span class="w"> </span><span class="mi">0</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// &lt;4&gt;</span>
+<span class="w">        </span><span class="nx">nextState</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">states</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="nx">nextState</span><span class="p">.</span><span class="nx">check</span><span class="p">(</span><span class="nx">input</span><span class="p">,</span><span class="w"> </span><span class="nx">pos</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// &lt;5&gt;</span>
+<span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="kc">true</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="nx">_</span><span class="p">,</span><span class="w"> </span><span class="nx">state</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="k">range</span><span class="w"> </span><span class="nx">s</span><span class="p">.</span><span class="nx">transitions</span><span class="p">[</span><span class="nx">epsilonChar</span><span class="p">]</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// &lt;6&gt;</span>
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="nx">state</span><span class="p">.</span><span class="nx">check</span><span class="p">(</span><span class="nx">input</span><span class="p">,</span><span class="w"> </span><span class="nx">pos</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// &lt;7&gt;</span>
+<span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="kc">true</span>
+<span class="w">        </span><span class="p">}</span>
+
+<span class="w">        </span><span class="k">if</span><span class="w"> </span><span class="nx">ch</span><span class="w"> </span><span class="o">==</span><span class="w"> </span><span class="nx">startOfText</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">state</span><span class="p">.</span><span class="nx">check</span><span class="p">(</span><span class="nx">input</span><span class="p">,</span><span class="w"> </span><span class="nx">pos</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="c1">// &lt;8&gt;</span>
+<span class="w">            </span><span class="k">return</span><span class="w"> </span><span class="kc">true</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="kc">false</span><span class="w"> </span><span class="c1">// &lt;9&gt;</span>
+<span class="p">}</span>
+</pre></div>
+
+<ol>
+<li><code>(s *state)</code> is just a way to add a function to the <code>state</code> struct in Golang, not relevant to the algorithm</li>
+<li>We get the current character we need to check for. It can be a valid character from the string, <em>startOfText</em> or <em>endOfText</em></li>
+<li>If we're at the end of the string and at the terminal state, that means the string matches the regex, so we return true.</li>
+<li>For the current character, we check if there's any transition specified. </li>
+<li>If such transition exists, we grab the next state, increment the position pointer and check. If check is a success, we return true.<ul>
+<li>Example: let's say <code>input</code> is <code>hello</code>. Once there's a match for <code>h</code>, the next state would try to match the character <code>e</code>.</li>
+</ul>
+</li>
+<li>If there's no character transition, we check for empty/epsilon transitions. </li>
+<li>For all such transitions, we try to check the next state with the same input and position. Since it's an empty transition, there's no need for incrementing the position. If the check is a success, we return true</li>
+<li>There's a chance that we get stuck at the start of the text and never actually progress. This condition is to prevent such conditions.</li>
+<li>If nothing matches, it's a failure, and we return false. </li>
+</ol>
+<h3>Testing</h3>
+<p>Finally, let's test our code against some input. Please keep in mind that, some of those <em>invalid</em> emails are actually valid in real world, but since our regex is a simplified version, it does not accept those ones.</p>
+<div class="highlight"><pre><span></span><span class="kd">func</span><span class="w"> </span><span class="nx">TestNfa</span><span class="p">(</span><span class="nx">t</span><span class="w"> </span><span class="o">*</span><span class="nx">testing</span><span class="p">.</span><span class="nx">T</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+
+<span class="w">    </span><span class="kd">var</span><span class="w"> </span><span class="nx">data</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="p">[]</span><span class="kd">struct</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">email</span><span class="w">    </span><span class="kt">string</span>
+<span class="w">        </span><span class="nx">validity</span><span class="w"> </span><span class="kt">bool</span>
+<span class="w">    </span><span class="p">}{</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;valid_email@example.com&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;john.doe@email.com&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;user_name@email.org&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;support@email.io&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;contact@123.com&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;sales@email.biz&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;test_email@email.test&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;random.email@email.xyz&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;user@domain12345.com&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;user@12345domain.com&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">},</span>
+<span class="w">        </span><span class="c1">// invalid when compared against our regex</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;alice.smith123@email.co.uk&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;invalid.email@&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;.invalid@email.com&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;email@invalid..com&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;user@-invalid.com&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;user@invalid-.com&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;user@in valid.com&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;user@.com&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;user@.co&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;user@domain.c&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;user@domain.1a&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;user@domain.c0m&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;user@domain..com&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;user@.email.com&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;user@emai.l.com&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;user@e_mail.com&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;user@e+mail.com&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;user@e^mail.com&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;user@e*mail.com&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;user@e.mail.com&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;user@e_mail.net&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;user@sub.domain.com&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;user@sub-domain.com&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;user@sub.domain12345.com&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;user@sub.domain-12345.com&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;user@-sub.domain.com&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;user@sub-.domain.com&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;user@domain-.com&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;user@sub.domain.c0m&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;user@sub.domain.c&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;user@sub.domain.1a&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;user@sub.domain.c0m&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;user@sub.domain..com&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;user@sub.domain.c0m&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;user@sub.domain..com&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span><span class="nx">email</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;user@sub.domain.c0m&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">validity</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">},</span>
+<span class="w">    </span><span class="p">}</span>
+
+<span class="w">    </span><span class="nx">ctx</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">parse</span><span class="p">(</span><span class="s">`[a-zA-Z][a-zA-Z0-9_.]+@[a-zA-Z0-9]+.[a-zA-Z]{2,}`</span><span class="p">)</span>
+<span class="w">    </span><span class="nx">nfa</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">toNfa</span><span class="p">(</span><span class="nx">ctx</span><span class="p">)</span>
+
+<span class="w">    </span><span class="k">for</span><span class="w"> </span><span class="nx">_</span><span class="p">,</span><span class="w"> </span><span class="nx">instance</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="k">range</span><span class="w"> </span><span class="nx">data</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">t</span><span class="p">.</span><span class="nx">Run</span><span class="p">(</span><span class="nx">fmt</span><span class="p">.</span><span class="nx">Sprintf</span><span class="p">(</span><span class="s">&quot;Test: &#39;%s&#39;&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">instance</span><span class="p">.</span><span class="nx">email</span><span class="p">),</span><span class="w"> </span><span class="kd">func</span><span class="p">(</span><span class="nx">t</span><span class="w"> </span><span class="o">*</span><span class="nx">testing</span><span class="p">.</span><span class="nx">T</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">            </span><span class="nx">result</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">nfa</span><span class="p">.</span><span class="nx">check</span><span class="p">(</span><span class="nx">instance</span><span class="p">.</span><span class="nx">email</span><span class="p">,</span><span class="w"> </span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+<span class="w">            </span><span class="k">if</span><span class="w"> </span><span class="nx">result</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="nx">instance</span><span class="p">.</span><span class="nx">validity</span><span class="w"> </span><span class="p">{</span>
+<span class="w">                </span><span class="nx">t</span><span class="p">.</span><span class="nx">Logf</span><span class="p">(</span><span class="s">&quot;Expected: %t, got: %t\n&quot;</span><span class="p">,</span><span class="w"> </span><span class="nx">instance</span><span class="p">.</span><span class="nx">validity</span><span class="p">,</span><span class="w"> </span><span class="nx">result</span><span class="p">)</span>
+<span class="w">                </span><span class="nx">t</span><span class="p">.</span><span class="nx">Fail</span><span class="p">()</span>
+<span class="w">            </span><span class="p">}</span>
+<span class="w">        </span><span class="p">})</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+
+<p>All the tests pass. We're done.</p>
+<p>Of course, there's a lot to improve in the code. You can check out the Github repository for this project. While the code will not be the exact same, the ideas are the same.</p>
+<p>Cheers!</p>
+<h2>References</h2>
+<ul>
+<li>https://en.wikipedia.org/wiki/Thompson%27s_construction</li>
+<li>https://en.wikipedia.org/wiki/Regular_expression</li>
+<li>https://deniskyashif.com/2019/02/17/implementing-a-regular-expression-engine/</li>
+<li>https://learn.microsoft.com/en-us/dotnet/standard/base-types/regular-expressions</li>
+<li>https://regex101.com/</li>
+<li>https://github.com/python/cpython/blob/main/Lib/test/re_tests.py</li>
+<li>https://blog.cernera.me/converting-regular-expressions-to-postfix-notation-with-the-shunting-yard-algorithm/</li>
+<li>https://en.wikipedia.org/wiki/Shunting_yard_algorithm</li>
+<li>https://gobyexample.com/</li>
+</ul>
+        </article>
+    </div>
+</main>
+
+<script>
+    const themeVal = (localStorage.getItem("isDark") || document.getElementsByTagName("body")[0].getAttribute("a")) ?? "light"
+    document.getElementsByTagName("body")[0].setAttribute("a", themeVal)
+    const btns = document.getElementsByClassName('theme-switch')
+    for (let btn of btns) {
+        btn.innerHTML = themeVal === "dark" ? "light" : "dark"
+        btn.addEventListener('click', (event) => {
+            const theme = localStorage.getItem("isDark") || document.getElementsByTagName("body")[0].getAttribute("a")
+            const isDark = theme === "dark"
+            document.getElementsByTagName("body")[0].setAttribute("a", isDark ? "light" : "dark")
+            localStorage.setItem("isDark", isDark ? "light" : "dark")
+            btn.innerHTML = isDark ? "dark" : "light"
+        })
+    }
+</script>
+
+</body>
+</html>

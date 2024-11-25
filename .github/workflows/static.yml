@@ -4,7 +4,7 @@ name: Deploy static content to Pages
 on:
   # Runs on pushes targeting the default branch
   push:
-    branches: ["new-engine"]
+    branches: ["main"]
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
@@ -33,30 +33,11 @@ jobs:
         uses: actions/checkout@v4
       - name: Setup Pages
         uses: actions/configure-pages@v5
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - run: pip install -r requirements.txt
-
-      - name: Build + Deploy
-        if: github.ref == 'refs/heads/new-engine'
-        run: |
-          cd built-site
-          git status
-          python main.py
-          cp -R build/* ${GITHUB_WORKSPACE}/built-site/
-          git add .
-          git config user.name 'rhaeguard'
-          git config user.email 'mensurowary@gmail.com'
-          git commit -m 'New version added'
-          git push
-
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
           # Upload entire repository
-          path: '${GITHUB_WORKSPACE}/built-site/'
+          path: './build'
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4

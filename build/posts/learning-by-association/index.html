@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Learning by association</title>
+    <link rel="stylesheet" href="/main.css">
+</head>
+<body>
+
+<main class="page-content">
+    <div class="wain">
+        <a href="/">home</a>
+        <button class="theme-switch">dark</button>
+        <article>
+            <p class="post-meta">
+                <time datetime="2024-07-16">
+                    2024-07-16
+                </time>
+            </p>
+
+            <h1>Learning by association</h1>
+            
+            
+
+            
+
+<p>I have a method/strategy that I use to remember things. It is called <em>associative learning</em> which is when one stimulus can trigger another one. Like <a href="https://en.wikipedia.org/wiki/Classical_conditioning">the experiment</a> Ivan Pavlov performed where the dog was conditioned to associate food with sound. </p>
+<p>My method is not necessarily conditioning oneself to remember things, but more about remembering things together. This method can be useful in long-term activities such as learning a new language. It can also be useful in everyday scenarios. Let's cover the latter first. Say you have an appointment tomorrow and you are expected to bring a set of specific documents. While it's possible to pick up these documents tomorrow and before heading out, what I would do would be to gather all of them and put them right next to things I will definitely take such as my wallet and car keys. It is unlikely to forget all these items at the same time. What happens here is that we physically <em>associate</em> the documents with other important artifacts to increase the chance of recall.</p>
+<p>Another way to use <em>associative learning</em> is in language learning. It becomes easier if you already know more than one language, but say you only know English and want to learn French. French and English share a lot of words, though they might have different meanings. Usually these meanings are not too far off. Anyway, say you see the word <strong>mur</strong> which means <strong>wall</strong>. You can memorize it, for sure, but a better way could be to remember it with the word <strong>mural</strong> in English which is an artwork painted directly on a <em>wall</em>. A couple more examples:
+- you might know <strong>arboreal</strong> has something to do with trees; well, <strong>arbre</strong> is a tree in French
+- <strong>infirmary</strong> is a place where the sick receive treatment; <strong>infirmier</strong>/<strong>infirmière</strong> is a nurse.
+- you may know that <strong>jaundice</strong> is associated with the color <strong>yellow</strong>; well <strong>jaune</strong> is the word for <strong>yellow</strong> in French.
+- Starbucks has the sizes Venti and Trenta which correspond to 20 and 30oz respectively. Well, those are the exact words to say 20 and 30 in Italian.</p>
+        </article>
+    </div>
+</main>
+
+<script>
+    const themeVal = (localStorage.getItem("isDark") || document.getElementsByTagName("body")[0].getAttribute("a")) ?? "light"
+    document.getElementsByTagName("body")[0].setAttribute("a", themeVal)
+    const btns = document.getElementsByClassName('theme-switch')
+    for (let btn of btns) {
+        btn.innerHTML = themeVal === "dark" ? "light" : "dark"
+        btn.addEventListener('click', (event) => {
+            const theme = localStorage.getItem("isDark") || document.getElementsByTagName("body")[0].getAttribute("a")
+            const isDark = theme === "dark"
+            document.getElementsByTagName("body")[0].setAttribute("a", isDark ? "light" : "dark")
+            localStorage.setItem("isDark", isDark ? "light" : "dark")
+            btn.innerHTML = isDark ? "dark" : "light"
+        })
+    }
+</script>
+
+</body>
+</html>
