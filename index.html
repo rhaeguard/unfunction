@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>rhaeguard's blog</title>
+    <link rel="stylesheet" href="/main.css">
+</head>
+<body>
+
+<main class="page-content">
+    <div class="wain">
+        <header>
+            <h1 title="rhaeguard's stuff"><a href="https://github.com/rhaeguard">rhaeguard</a>'s stuff.</h1>
+            <button class="theme-switch">dark</button>
+        </header>
+        
+        <ul>
+            <li>some cool side projects</li>
+            <ul><li><a href="https://rhaeguard.github.io/visualizations/">visualizations with canvas api</a></li><li><a href="https://github.com/rhaeguard/phont">phont - rendering ttf fonts from scratch</a></li><li><a href="https://github.com/rhaeguard/rgx">rgx - a tiny regex engine</a></li><li><a href="https://github.com/rhaeguard/shum">shum - a concatenative language for jvm</a></li><li><a href="https://github.com/rhaeguard/snake">snake - a snake game with procedurally-generated maps</a></li><li><a href="https://github.com/rhaeguard/cells">cells - a spreadsheet with lisp-like formulas</a></li></ul>
+
+            <li>all posts</li>
+            <ul><li><span>2024-07-16</span>&nbsp;<a href="/posts/thoughts-on-software-development-practices">Thoughts on Software Development Pratices</a></li><li><span>2023-10-07</span>&nbsp;<a href="/posts/regex">How to build a regex engine from scratch</a></li><li><span>2023-11-09</span>&nbsp;<a href="/posts/json-parsing-shift-reduce">How to parse JSON using shift-reduce parsing approach</a></li><li><span>2024-07-16</span>&nbsp;<a href="/posts/learning-by-association">Learning by association</a></li></ul>
+        </ul>
+
+    </div>
+</main>
+
+<script>
+    const themeVal = (localStorage.getItem("isDark") || document.getElementsByTagName("body")[0].getAttribute("a")) ?? "light"
+    document.getElementsByTagName("body")[0].setAttribute("a", themeVal)
+    const btns = document.getElementsByClassName('theme-switch')
+    for (let btn of btns) {
+        btn.innerHTML = themeVal === "dark" ? "light" : "dark"
+        btn.addEventListener('click', (event) => {
+            const theme = localStorage.getItem("isDark") || document.getElementsByTagName("body")[0].getAttribute("a")
+            const isDark = theme === "dark"
+            document.getElementsByTagName("body")[0].setAttribute("a", isDark ? "light" : "dark")
+            localStorage.setItem("isDark", isDark ? "light" : "dark")
+            btn.innerHTML = isDark ? "dark" : "light"
+        })
+    }
+</script>
+
+</body>
+</html>

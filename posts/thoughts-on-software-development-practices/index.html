@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Thoughts on Software Development Pratices</title>
+    <link rel="stylesheet" href="/main.css">
+</head>
+<body>
+
+<main class="page-content">
+    <div class="wain">
+        <a href="/">home</a>
+        <button class="theme-switch">dark</button>
+        <article>
+            <p class="post-meta">
+                <time datetime="2024-07-16">
+                    2024-07-16
+                </time>
+            </p>
+
+            <h1>Thoughts on Software Development Pratices</h1>
+            
+            
+
+            
+
+<p>These are some of my random thoughts on software development pratices. These are not facts, these are opinions. I reckon you most likely have seen or heard some or all of these at some point.</p>
+<ol>
+<li><a href="https://en.wikipedia.org/wiki/Scalability#Vertical_or_scale_up">Vertical scaling</a> is probably fine for your use case, don't be obsessed with <a href="https://en.wikipedia.org/wiki/Scalability#Horizontal_or_scale_out">horizontal scaling</a>. The monolith is fine. </li>
+<li>Performance matters, and it matters much more than you think.</li>
+<li>Software security should not be an afterthought.</li>
+<li>Give visual feedback on any action the user performs in the UI. If the payment was successful, show the user that it was successful.</li>
+<li>Do not generalize off of a single use case. You can literally fit an infinite number of lines through a single point.</li>
+<li>Sometimes code duplication is okay.</li>
+<li>Old ideas get ressurrected every 10 years or so (SSR, SOAP/RPC/GraphQL) therefore do not fixate on the new and shiny, but do keep up with the trends. Just because a random guy on the internet said jQuery or PHP is bad, doesn't mean it is bad. </li>
+<li>Do not overengineer. If a <code>boolean</code> flag works fine in the current use case, use that. "Futureproofing" is a good concept but it often fails to deliver what it promises. Do not try to solve a problem that does not exist.</li>
+<li>Learn how to use development tools properly. These include: IDEs, profilers, static analysis tools, perf testing tools, etc. and of course the AI assistants.</li>
+<li>Test with real data. Mocking should/will never give you confidence to push things to production. Unit testing is important, but a unit does not mean a single function. Test the use cases: user login, purchase, refund, etc.</li>
+<li>Be a generalist, learn the fundamentals. Nothing can replace a proper Computer Science knowledge a university undergrad study provides you.</li>
+<li>Be open to ideas. Software Engineering is a fast moving field. It will have a lot of hyped up trends that you shouldn't spend time on as long as it isn't your job (and big corporations love hype trains), but it will also have really interesting and useful ideas. Keep an eye out for those. With experience you will learn what is fad and what's real deal.</li>
+<li>If multiple solutions are possible, benchmark the performance (or whatever metric is relevant) to decide which one to choose. Data-driven decisions should be preferred over intuition whenever possible.</li>
+<li>Have a pre-recorded demo ready for your presentations; demo gods are often cruel. If you're presenting over Zoom, do not have transition animations.</li>
+<li>Stop bikeshedding around variable naming, function naming, cases, language choices, formatting, etc. When working in a team, pick a style and stick to that, or if the team is already using one, use that.</li>
+<li>Usually a series of <code>if</code>s or <code>switch</code> cases are better than inheritance. The problems people mention about conditionals is often overblown. Inheritance introduces way more bloat for simple use cases. It absolutely has its own time and place. "Composition over inheritance" is actually a good advice.</li>
+<li>You do not need to introduce a whole new library/dependency to calculate something like the <a href="https://en.wikipedia.org/wiki/Levenshtein_distance">Levenshtein distance</a>.</li>
+</ol>
+        </article>
+    </div>
+</main>
+
+<script>
+    const themeVal = (localStorage.getItem("isDark") || document.getElementsByTagName("body")[0].getAttribute("a")) ?? "light"
+    document.getElementsByTagName("body")[0].setAttribute("a", themeVal)
+    const btns = document.getElementsByClassName('theme-switch')
+    for (let btn of btns) {
+        btn.innerHTML = themeVal === "dark" ? "light" : "dark"
+        btn.addEventListener('click', (event) => {
+            const theme = localStorage.getItem("isDark") || document.getElementsByTagName("body")[0].getAttribute("a")
+            const isDark = theme === "dark"
+            document.getElementsByTagName("body")[0].setAttribute("a", isDark ? "light" : "dark")
+            localStorage.setItem("isDark", isDark ? "light" : "dark")
+            btn.innerHTML = isDark ? "dark" : "light"
+        })
+    }
+</script>
+
+</body>
+</html>
