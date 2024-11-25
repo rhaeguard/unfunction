@@ -1,8 +1,8 @@
-+++
-title = 'Thoughts on Software Development Pratices'
+<!--
+title = Thoughts on Software Development Pratices
 date = 2024-07-16T04:18:33-06:00
 draft = false
-+++
+-->
 
 These are some of my random thoughts on software development pratices. These are not facts, these are opinions. I reckon you most likely have seen or heard some or all of these at some point.
 

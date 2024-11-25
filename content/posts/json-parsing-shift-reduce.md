@@ -1,9 +1,8 @@
-+++
-title = 'How to parse JSON using shift-reduce parsing approach'
-date = 2023-11-09T01:12:33-06:00
-draft = false
-github = 'rhaeguard/gojson'
-+++
+<!--
+title=How to parse JSON using shift-reduce parsing approach
+date=2023-11-09T01:12:33-06:00
+draft=false
+-->
 
 Parsing JSON is something that the majority of programmers have done. Almost all languages have means to deserialize (unmarshall) JSON from text into some data structure. In this article, we are going to try doing exactly that.
 
@@ -11,7 +10,7 @@ Parsing JSON is something that the majority of programmers have done. Almost all
 
 Just like in natural languages, the programming languages and various data formats have a grammar. The grammar consists of rules that show how the text input needs to be structured. For JSON the following is a simplified version of a part of the grammar:
 
-```plaintext
+```text
 1. json ::= value
 2. value ::= object | array | string
 3. object ::= '{' members '}'
@@ -69,9 +68,7 @@ Recursive descent/top-down parsing is awesome, but there are other ways of parsi
 
 You can also check out Professor Brailsford's video on Computerphile on this subject as he explains stuff way better than I can.
 
-{{<raw_html>}}
 <iframe width="100%" height="315" src="https://www.youtube.com/embed/tH5AOX9929g?si=PRfAEyXSmLUT-37m" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
-{{</raw_html>}}
 
 In this tutorial, we will use a bottom-up approach, namely shift-reduce, to parse JSON. We will use Golang, but the concepts can be coded in any language.
 
@@ -79,7 +76,7 @@ In this tutorial, we will use a bottom-up approach, namely shift-reduce, to pars
 
 The shift-reduce parsing approach is a table-driven parsing approach that consists of 2 operations - shift and reduce. Here's the simplified version of the algorithm:
 
-```plaintext
+```text
 init:
     0. the input to be parsed
     1. the parse table (PT)
@@ -113,7 +110,6 @@ It is able to parse expressions such as 1+1 or 1*1+0.
 
 **The Parse Tree:**
 
-{{<raw_html>}}
 <table>
     <thead>
         <tr>
@@ -225,7 +221,6 @@ It is able to parse expressions such as 1+1 or 1*1+0.
         </tr>
     </tbody>
 </table>
-{{</raw_html>}}
 
 - `rn` is reducing to the rule number `n`
 - `sn` is shifting the lookahead and moving to state `n`
@@ -469,7 +464,7 @@ func lex(input string) ([]token, *Error) {
 
 This is an example of what the lexer produces for the string: `{"hello": 12345}`
 
-```golang
+```go
 [
 	{<nil> { } // object start
 	{hello <string_literal> } // hello string
@@ -504,8 +499,6 @@ Let's actually see this in action before we introduce the code. Let's take the g
 5. B → 1
 
 and let's parse `1+1` with it
-
-{{<raw_html>}}
 
 <table>
 	<thead>
@@ -575,8 +568,6 @@ and let's parse `1+1` with it
 		</tr>
 	<tbody></tbody>
 </table>
-
-{{</raw_html>}}
 
 Now that we've seen an example of how shift-reduce works, let's take a look at the code. But before that, we have a couple of useful structs and constants:
 

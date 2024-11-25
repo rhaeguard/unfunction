@@ -1,5 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{TITLE}}</title>
+    <link rel="stylesheet" href="main.css">
+</head>
+<body>
+
+{{CONTENT}}
+
 <script>
-    const themeVal = localStorage.getItem("isDark") || document.getElementsByTagName("body")[0].getAttribute("a")
+    const themeVal = (localStorage.getItem("isDark") || document.getElementsByTagName("body")[0].getAttribute("a")) ?? "light"
     document.getElementsByTagName("body")[0].setAttribute("a", themeVal)
     const btns = document.getElementsByClassName('theme-switch')
     for (let btn of btns) {
@@ -13,3 +25,6 @@
         })
     }
 </script>
+
+</body>
+</html>

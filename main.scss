@@ -10,7 +10,8 @@
   $--gh-tool-text-color,
   $--gh-tool-link-color,
   $--inline-code-bg-color,
-  $--inline-code-text-color
+  $--inline-code-text-color,
+  $--block-code-bg-color
 ) {
   background-color: $--bg-color;
 
@@ -26,6 +27,13 @@
   code:not(pre > code) {
     background-color: $--inline-code-bg-color;
     color: $--inline-code-text-color;
+  }
+
+  .highlight {
+    pre {
+      background-color: $--block-code-bg-color;
+      color: white;
+    }
   }
 
   figcaption { color: $--secondary-text-color; }
@@ -86,7 +94,8 @@
    white,
    white,
    #3c434d,
-   white
+   white,
+   black
    );
 }
 
@@ -101,7 +110,8 @@
    white,
    #1e70bf,
    #e4e6e9,
-   rgb(58, 58, 58)
+   rgb(58, 58, 58),
+   black
    );
 }
 
@@ -145,7 +155,6 @@ li { margin: 0.4rem 0; }
 .w {
   max-width: 640px;
   margin: 0 auto;
-  padding: 4rem 2rem;
 }
 
 .toc {
@@ -162,7 +171,7 @@ hr {
 }
 
 pre {
-  background: black;
+  // background: black;
   padding: 1em;
   overflow-x: auto; /* Fix pre content overflowing parent without scroll bar */
 }

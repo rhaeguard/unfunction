@@ -1,9 +1,9 @@
-+++
-title = 'How to build a regex engine from scratch'
+<!--
+title = How to build a regex engine from scratch
 date = 2023-10-07T01:40:33-06:00
 draft = false
-github = 'rhaeguard/rgx'
-+++
+github = rhaeguard/rgx
+-->
 
 In this article, we'll build a simple regular expression engine that will be able to use `[a-zA-Z][a-zA-Z0-9_.]+@[a-zA-Z0-9]+.[a-zA-Z]{2,}` pattern (_`.` is used as literal instead of any character_) to check for the validity of email addresses. We will use Golang. The article is divided into 3 sections:
 
