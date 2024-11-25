@@ -20,7 +20,6 @@ jobs:
           path: built-site
 
       - uses: actions/setup-python@v5
-        if: github.ref == 'refs/heads/new-engine'
         with:
           python-version: '3.11'
       - run: pip install -r requirements.txt
@@ -28,6 +27,7 @@ jobs:
       - name: Build + Deploy
         if: github.ref == 'refs/heads/new-engine'
         run: |
+          ls -la built-site
           python main.py
           cp -R build/* ${GITHUB_WORKSPACE}/built-site/
           git add .
