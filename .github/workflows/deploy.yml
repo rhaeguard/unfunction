@@ -1,0 +1,38 @@
+name: Publish to GH Pages using new engine
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v3
+
+      - name: Checkout destination
+        uses: actions/checkout@v3
+        if: github.ref == 'refs/heads/main'
+        with:
+          ref: gh-pages-2
+          path: built-site
+
+      - uses: actions/setup-python@v5
+        if: github.ref == 'refs/heads/main'
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+
+      - name: Build + Deploy
+        if: github.ref == 'refs/heads/main'
+        run: |
+          cd ${RUNNER_TEMP}
+          python main.py
+          cp -R build/* ${GITHUB_WORKSPACE}/built-site/
+          git add .
+          git config user.name 'rhaeguard'
+          git config user.email 'mensurowary@gmail.com'
+          git commit -m 'New version added'
+          git push
