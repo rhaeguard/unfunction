@@ -27,7 +27,8 @@ jobs:
       - name: Build + Deploy
         if: github.ref == 'refs/heads/new-engine'
         run: |
-          ls -la built-site
+          cd built-site
+          git status
           python main.py
           cp -R build/* ${GITHUB_WORKSPACE}/built-site/
           git add .
