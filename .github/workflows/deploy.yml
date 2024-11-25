@@ -14,19 +14,19 @@ jobs:
 
       - name: Checkout destination
         uses: actions/checkout@v3
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/new-engine'
         with:
           ref: gh-pages-2
           path: built-site
 
       - uses: actions/setup-python@v5
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/new-engine'
         with:
           python-version: '3.11'
       - run: pip install -r requirements.txt
 
       - name: Build + Deploy
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/new-engine'
         run: |
           cd ${RUNNER_TEMP}
           python main.py
